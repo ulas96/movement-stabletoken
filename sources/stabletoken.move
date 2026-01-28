@@ -17,11 +17,17 @@ module stabletoken::stabletoken_engine {
     // Error Codes
     const EACCOUNT_ALREADY_INITIALIZED: u64 = 0;
     const EACCOUNT_NOT_INITIALIZED: u64 = 1;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 2;
 
     // Functions
+
+    // Public Entry Functions
     public entry fun initialize(account: &signer) {
         let addr = signer::address_of(account);
-        assert!(!exists<Deposit>(addr) && !exists<Coin>(addr));
+        assert!(
+            !exists<Deposit>(addr) && !exists<Coin>(addr),
+            EACCOUNT_ALREADY_INITIALIZED
+        );
         let empty_deposit = Deposit { amount: 0 };
         let empty_coin = Coin { amount: 0 };
         move_to(account, empty_deposit);
@@ -30,13 +36,23 @@ module stabletoken::stabletoken_engine {
 
     public entry fun deposit(account: &signer, amount: u64) acquires Deposit {
         let addr = signer::address_of(account);
-        let deposit = borrow_global<Deposit>(addr).amount;
         assert!(
             exists<Deposit>(addr),
             EACCOUNT_NOT_INITIALIZED
         );
+        let deposit = borrow_global<Deposit>(addr).amount;
         let deposit_ref = &mut borrow_global_mut<Deposit>(addr).amount;
         *deposit_ref = deposit + amount;
+    }
+
+    public entry fun mint(account: &signer, amount: u64) acquires Coin, Deposit {
+        let addr = signer::address_of(account);
+        assert!(exists<Coin>(addr), EACCOUNT_NOT_INITIALIZED);
+        let max_mintible: u64 = deposit_of(addr) * get_price();
+        assert!(max_mintible >= amount, ENOT_ENOUGH_DEPOSIT);
+        let coin_balance: u64 = borrow_global<Coin>(addr).amount;
+        let coin_ref = &mut borrow_global_mut<Coin>(addr).amount;
+        *coin_ref = coin_balance + amount;
     }
 
     // View Functions
@@ -48,12 +64,15 @@ module stabletoken::stabletoken_engine {
         borrow_global<Deposit>(addr).amount
     }
 
-    // public fun mint(account: &signer, amount: u64): Coin acquires Coin {}
+    public fun get_price(): u64 {
+        PRICE
+    }
+
     #[test(account = @stabletoken)]
     fun initialization_check(account: &signer) {
         let addr = signer::address_of(account);
         initialize(account);
-        assert!(exists<Coin>(addr) && exists<Coin>(addr), 0)
+        assert!(exists<Coin>(addr) && exists<Coin>(addr), 0);
     }
 
     #[test(account = @stabletoken)]
@@ -63,5 +82,25 @@ module stabletoken::stabletoken_engine {
         initialize(account);
         deposit(account, deposit_amount);
         assert!(deposit_of(addr) == deposit_amount);
+    }
+
+    #[test(account = @stabletoken)]
+    fun deposit_of_check(account: &signer) acquires Deposit {
+        let deposit_amount: u64 = 10;
+        let addr = signer::address_of(account);
+        initialize(account);
+        deposit(account, deposit_amount);
+        assert!(deposit_of(addr) == deposit_amount);
+    }
+
+    #[test(account = @stabletoken)]
+    fun coin_of_check(account: &signer) acquires Coin, Deposit {
+        let addr = signer::address_of(account);
+        let mint_amount: u64 = 10;
+        let deposit_amount: u64 = 100;
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+        assert!(coin_of(addr) == mint_amount);
     }
 }
