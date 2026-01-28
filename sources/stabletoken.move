@@ -2,7 +2,7 @@ module stabletoken::stabletoken_engine {
     use std::signer;
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::AptosCoin;
-
+    use aptos_framework::account;
     // Structs
     struct Deposit has key, drop {
         amount: u64
@@ -78,13 +78,15 @@ module stabletoken::stabletoken_engine {
         assert!(exists<Coin>(addr) && exists<Coin>(addr), 0);
     }
 
-    #[test(account = @stabletoken, framework = @aptos_framework)]
-    fun deposit_check(account: &signer, framework: &signer) acquires Deposit {
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun deposit_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit {
         let deposit_amount: u64 = 10;
         let addr = signer::address_of(account);
 
-        let (burn_cap, mint_cap) = set_up_test_coins(account, framework, deposit_amount);
-
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
         initialize(account);
         let before_balance = coin::balance<AptosCoin>(addr);
         deposit(account, deposit_amount);
@@ -96,46 +98,60 @@ module stabletoken::stabletoken_engine {
         clean_test_coins(burn_cap, mint_cap);
     }
 
-    #[test(account = @stabletoken)]
-    fun deposit_of_check(account: &signer) acquires Deposit {
+    #[test(account = @stabletoken, framework = @aptos_framework)]
+    fun deposit_of_check(account: &signer, framework: &signer) acquires Deposit {
         let deposit_amount: u64 = 10;
         let addr = signer::address_of(account);
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
         initialize(account);
         deposit(account, deposit_amount);
         assert!(deposit_of(addr) == deposit_amount);
+        clean_test_coins(burn_cap, mint_cap);
     }
 
-    #[test(account = @stabletoken)]
-    fun coin_of_check(account: &signer) acquires Coin, Deposit {
+    #[test(account = @stabletoken, framework = @aptos_framework)]
+    fun coin_of_check(account: &signer, framework: &signer) acquires Coin, Deposit {
         let addr = signer::address_of(account);
         let mint_amount: u64 = 10;
         let deposit_amount: u64 = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
         initialize(account);
         deposit(account, deposit_amount);
         mint(account, mint_amount);
         assert!(coin_of(addr) == mint_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
     }
 
     // Test Helpers
     #[test_only]
-    fun set_up_test_coins(
+    fun setup_test_coins(
         account: &signer, framework: &signer, amount: u64
     ): (coin::BurnCapability<AptosCoin>, coin::MintCapability<AptosCoin>) {
         let addr = signer::address_of(account);
         let (burn_cap, mint_cap) =
             aptos_framework::aptos_coin::initialize_for_test(framework);
-        coin::register<AptosCoin>(account);
+        register_account(account);
         coin::deposit(addr, coin::mint<AptosCoin>(amount, &mint_cap));
         (burn_cap, mint_cap)
     }
 
     #[test_only]
-
     fun clean_test_coins(
         burn_cap: coin::BurnCapability<AptosCoin>,
         mint_cap: coin::MintCapability<AptosCoin>
     ) {
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test_only]
+    fun register_account(account: &signer) {
+        let addr = signer::address_of(account);
+        account::create_account_for_test(addr);
+        coin::register<AptosCoin>(account);
+
     }
 }
