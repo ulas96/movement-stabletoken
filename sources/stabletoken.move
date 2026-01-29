@@ -21,7 +21,8 @@ module stabletoken::stabletoken_engine {
     const EACCOUNT_ALREADY_INITIALIZED: u64 = 0;
     const EACCOUNT_NOT_INITIALIZED: u64 = 1;
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
-    const ENOT_ENOUGH_MINT: u64 = 3;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 3;
+    const ENOT_ENOUGH_MINT: u64 = 4;
 
     // Functions
 
@@ -70,7 +71,17 @@ module stabletoken::stabletoken_engine {
         }
     }
 
-    // public entry fun withdraw(account: &signer, amount: u64) {}
+    public entry fun withdraw(account: &signer, amount: u64) acquires Deposit, Coin {
+        let addr = signer::address_of(account);
+        let deposit = deposit_of(addr);
+        let coin = coin_of(addr);
+        let max_allow_withdraw = deposit - coin / get_price();
+        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT);
+        assert!(deposit >= amount, ENOT_ENOUGH_DEPOSIT);
+
+        let deposit_ref = &mut borrow_global_mut<Deposit>(addr).amount;
+        *deposit_ref = deposit - amount;
+    }
 
     // View Functions
     public fun coin_of(addr: address): u64 acquires Coin {
@@ -181,6 +192,44 @@ module stabletoken::stabletoken_engine {
         liquidate(account);
 
         assert!(deposit_of(addr) == 0);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun withdraw_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        withdraw(account, deposit_amount);
+        assert!(deposit_of(addr) == 0);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
+    fun withdraw_fail(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin {
+        let deposit_amount = 1000;
+        let mint_amount = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        withdraw(account, deposit_amount);
 
         clean_test_coins(burn_cap, mint_cap);
     }
