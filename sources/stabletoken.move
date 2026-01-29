@@ -23,7 +23,7 @@ module stabletoken::stabletoken_engine {
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 3;
     const ENOT_ENOUGH_MINT: u64 = 4;
-
+    const ENOT_LIQUIDATABLE: u64 = 5;
     // Functions
 
     // Public Entry Functions
@@ -65,10 +65,10 @@ module stabletoken::stabletoken_engine {
     public entry fun liquidate(account: &signer) acquires Coin, Deposit {
         let addr = signer::address_of(account);
         assert!(exists<Coin>(addr), ENOT_ENOUGH_MINT);
-        if (get_health_factor(addr) <= PRECISION) {
-            let deposit = &mut borrow_global_mut<Deposit>(addr).amount;
-            *deposit = 0;
-        }
+        assert!(get_health_factor(addr) <= PRECISION, ENOT_LIQUIDATABLE);
+        let deposit_ref = &mut borrow_global_mut<Deposit>(addr).amount;
+        *deposit_ref = 0;
+
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires Deposit, Coin {
@@ -156,7 +156,28 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    fun check_health_factor(
+    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    fun mint_fail(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit {
+        let addr = signer::address_of(account);
+        let mint_amount: u64 = 100;
+        let deposit_amount: u64 = 10;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        assert!(coin_of(addr) == mint_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun health_factor_check(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit {
         let addr = signer::address_of(account);
@@ -176,7 +197,7 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    fun check_liquidation(
+    fun liquidation_check(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit {
         let addr = signer::address_of(account);
@@ -192,6 +213,26 @@ module stabletoken::stabletoken_engine {
         liquidate(account);
 
         assert!(deposit_of(addr) == 0);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    fun liquidation_fail(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+        let coin_amount = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        set_coin_amount(addr, coin_amount);
+        liquidate(account);
 
         clean_test_coins(burn_cap, mint_cap);
     }
