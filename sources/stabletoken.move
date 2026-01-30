@@ -24,7 +24,7 @@ module stabletoken::stabletoken_engine {
 
     // Error Cods
     const EACCOUNT_ALREADY_INITIALIZED: u64 = 0;
-    const EZERO_AMONUNT: u64 = 1;
+    const EZERO_AMOUNT: u64 = 1;
     const EACCOUNT_NOT_INITIALIZED: u64 = 2;
     const ENOT_ENOUGH_DEPOSIT: u64 = 3;
     const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 4;
@@ -47,7 +47,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun deposit(account: &signer, amount: u64) acquires Deposit, SignerCap {
-        assert!(amount > 0, EZERO_AMONUNT);
+        assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         assert!(
             exists<Deposit>(addr),
@@ -62,7 +62,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun mint(account: &signer, amount: u64) acquires Coin, Deposit {
-        assert!(amount > 0, EZERO_AMONUNT);
+        assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         assert!(exists<Coin>(addr), EACCOUNT_NOT_INITIALIZED);
         let deposit_balance = deposit_of(addr);
@@ -85,7 +85,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires Deposit, Coin, SignerCap {
-        assert!(amount > 0, EZERO_AMONUNT);
+        assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         let deposit = deposit_of(addr);
         let coin = coin_of(addr);
@@ -102,7 +102,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires Coin {
-        assert!(amount > 0, EZERO_AMONUNT);
+        assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         let coin_balance = coin_of(addr);
         assert!(coin_balance >= amount, ENOT_ENOUGH_MINT);
@@ -186,6 +186,24 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    fun deposit_fail_zero_amount(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, SignerCap {
+        let deposit_amount = 0;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+
+        register_account(stabletoken);
+        init_module(stabletoken);
+        initialize(account);
+
+        deposit(account, deposit_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     fun multiple_deposits_check(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Deposit, SignerCap {
@@ -216,7 +234,7 @@ module stabletoken::stabletoken_engine {
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     #[expected_failure(abort_code = EACCOUNT_NOT_INITIALIZED)]
-    fun deposit_fail(
+    fun deposit_fail_not_init(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Deposit, SignerCap {
         let deposit_amount = 10;
@@ -292,6 +310,23 @@ module stabletoken::stabletoken_engine {
         mint(account, mint_amount);
 
         assert!(coin_of(addr) == 2 * mint_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    fun mint_fail_zero_amount(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit {
+        let mint_amount: u64 = 0;
+        let deposit_amount: u64 = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        create_mock_deposit(account, deposit_amount);
+        mint(account, mint_amount);
 
         clean_test_coins(burn_cap, mint_cap);
     }
@@ -377,9 +412,6 @@ module stabletoken::stabletoken_engine {
 
         clean_test_coins(burn_cap, mint_cap);
     }
-
-    //     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    // fun liqudation_boundary_check(account: &signer, stabletoken = &signer, framework: &signer) {}
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
@@ -485,6 +517,27 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    fun withdrawal_fail_not_initialized(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let deposit_amount = 1000;
+        let mint_amount = 0;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+
+        init_module(stabletoken);
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        withdraw(account, deposit_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
     fun withdrawal_fail(
         account: &signer, stabletoken: &signer, framework: &signer
@@ -532,8 +585,35 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    fun burn_fail_zero_amount(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+        let mint_amount = 0;
+        let burn_amount = 200;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        let coin_balance = coin_of(addr);
+
+        burn(account, burn_amount);
+
+        assert!(coin_of(addr) == coin_balance - burn_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     #[expected_failure(abort_code = ENOT_ENOUGH_MINT)]
-    fun burn_fail(
+    fun burn_fail_not_enough_mint(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit, SignerCap {
         let addr = signer::address_of(account);
