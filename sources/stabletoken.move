@@ -371,6 +371,26 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    fun mint_fail_overcollateralization(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let mint_amount: u64 = 100;
+        let deposit_amount: u64 = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+        mint(account, mint_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     fun health_factor_check(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit, SignerCap {
