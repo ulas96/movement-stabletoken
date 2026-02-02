@@ -22,14 +22,15 @@ module stabletoken::stabletoken_engine {
     const PRICE: u64 = 1;
     const PRECISION: u64 = 100;
 
-    // Error Cods
+    // Error Codes
     const EACCOUNT_ALREADY_INITIALIZED: u64 = 0;
     const EZERO_AMOUNT: u64 = 1;
     const EACCOUNT_NOT_INITIALIZED: u64 = 2;
-    const ENOT_ENOUGH_DEPOSIT: u64 = 3;
-    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 4;
-    const ENOT_ENOUGH_MINT: u64 = 4;
-    const ENOT_LIQUIDATABLE: u64 = 5;
+    const ENOT_ENOUGH_BALANCE: u64 = 3;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 4;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 5;
+    const ENOT_ENOUGH_MINT: u64 = 6;
+    const ENOT_LIQUIDATABLE: u64 = 7;
 
     // Functions
 
@@ -53,7 +54,7 @@ module stabletoken::stabletoken_engine {
             exists<Deposit>(addr),
             EACCOUNT_NOT_INITIALIZED
         );
-        assert!(coin::balance<AptosCoin>(addr) >= amount);
+        assert!(coin::balance<AptosCoin>(addr) >= amount, ENOT_ENOUGH_BALANCE);
         let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr;
         coin::transfer<AptosCoin>(account, resource_addr, amount);
         let deposit_amount = borrow_global<Deposit>(addr).amount;
@@ -75,8 +76,7 @@ module stabletoken::stabletoken_engine {
         *coin_ref = coin_balance + amount;
     }
 
-    public entry fun liquidate(account: &signer) acquires Coin, Deposit {
-        let addr = signer::address_of(account);
+    public entry fun liquidate(addr: address) acquires Coin, Deposit {
         assert!(exists<Coin>(addr), ENOT_ENOUGH_MINT);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
         let deposit_ref = &mut borrow_global_mut<Deposit>(addr).amount;
@@ -126,8 +126,9 @@ module stabletoken::stabletoken_engine {
     }
 
     public fun get_health_factor(addr: address): u64 acquires Coin, Deposit {
-        let deposit = borrow_global<Deposit>(addr).amount;
-        let mint = borrow_global<Coin>(addr).amount;
+        assert!(coin_of(addr) > 0, ENOT_ENOUGH_MINT);
+        let deposit = deposit_of(addr);
+        let mint = coin_of(addr);
 
         deposit * get_price() * PRECISION / mint
     }
@@ -142,14 +143,14 @@ module stabletoken::stabletoken_engine {
     }
 
     fun get_available_collateral(deposit_amount: u64, mint_amount: u64): u64 {
-        deposit_amount - mint_amount / get_price()
+        deposit_amount - (mint_amount / get_price())
     }
 
     #[test(account = @stabletoken)]
     fun initialization_check(account: &signer) {
         let addr = signer::address_of(account);
         initialize(account);
-        assert!(exists<Coin>(addr) && exists<Coin>(addr), 0);
+        assert!(exists<Coin>(addr) && exists<Deposit>(addr), 0);
     }
 
     #[test(account = @stabletoken)]
@@ -353,7 +354,6 @@ module stabletoken::stabletoken_engine {
     fun mint_fail_not_enough_deposit(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit, SignerCap {
-        let addr = signer::address_of(account);
         let mint_amount: u64 = 100;
         let deposit_amount: u64 = 10;
 
@@ -364,8 +364,6 @@ module stabletoken::stabletoken_engine {
         initialize(account);
         deposit(account, deposit_amount);
         mint(account, mint_amount);
-
-        assert!(coin_of(addr) == mint_amount);
 
         clean_test_coins(burn_cap, mint_cap);
     }
@@ -421,12 +419,13 @@ module stabletoken::stabletoken_engine {
 
         let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
         register_account(stabletoken);
-        init_module(stabletoken);
 
+        init_module(stabletoken);
         initialize(account);
+
         deposit(account, deposit_amount);
         set_coin_amount(addr, coin_amount);
-        liquidate(account);
+        liquidate(addr);
 
         assert!(deposit_of(addr) == 0);
 
@@ -449,7 +448,7 @@ module stabletoken::stabletoken_engine {
         initialize(account);
         deposit(account, deposit_amount);
         set_coin_amount(addr, coin_amount);
-        liquidate(account);
+        liquidate(addr);
 
         clean_test_coins(burn_cap, mint_cap);
     }
@@ -538,11 +537,10 @@ module stabletoken::stabletoken_engine {
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
     #[expected_failure(abort_code = EZERO_AMOUNT)]
-    fun withdrawal_fail_not_initialized(
+    fun withdrawal_fail_zero_amount(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Deposit, Coin, SignerCap {
         let deposit_amount = 1000;
-        let mint_amount = 0;
 
         let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
         register_account(stabletoken);
@@ -550,9 +548,8 @@ module stabletoken::stabletoken_engine {
         init_module(stabletoken);
         initialize(account);
         deposit(account, deposit_amount);
-        mint(account, mint_amount);
 
-        withdraw(account, deposit_amount);
+        withdraw(account, 0);
 
         clean_test_coins(burn_cap, mint_cap);
     }
@@ -609,10 +606,9 @@ module stabletoken::stabletoken_engine {
     fun burn_fail_zero_amount(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit, SignerCap {
-        let addr = signer::address_of(account);
         let deposit_amount = 1000;
-        let mint_amount = 0;
-        let burn_amount = 200;
+        let mint_amount = 100;
+        let burn_amount = 0;
 
         let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
         register_account(stabletoken);
@@ -622,11 +618,7 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
         mint(account, mint_amount);
 
-        let coin_balance = coin_of(addr);
-
         burn(account, burn_amount);
-
-        assert!(coin_of(addr) == coin_balance - burn_amount);
 
         clean_test_coins(burn_cap, mint_cap);
     }
@@ -636,7 +628,6 @@ module stabletoken::stabletoken_engine {
     fun burn_fail_not_enough_mint(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires Coin, Deposit, SignerCap {
-        let addr = signer::address_of(account);
         let deposit_amount = 1000;
         let mint_amount = 100;
         let burn_amount = 200;
@@ -649,11 +640,322 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
         mint(account, mint_amount);
 
-        let coin_balance = coin_of(addr);
-
         burn(account, burn_amount);
 
-        assert!(coin_of(addr) == coin_balance - burn_amount);
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_BALANCE)]
+    fun deposit_fail_insufficient_balance(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, SignerCap {
+        let aptos_balance = 50;
+        let deposit_amount = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, aptos_balance);
+        register_account(stabletoken);
+        init_module(stabletoken);
+        initialize(account);
+
+        deposit(account, deposit_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_MINT)]
+    fun health_factor_fail_zero_mint(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+
+        get_health_factor(addr);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun health_factor_exact_boundary_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 100;
+        let mint_amount = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        assert!(get_health_factor(addr) == 100);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    fun liquidation_fail_exact_boundary(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 100;
+        let coin_amount = 100;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        set_coin_amount(addr, coin_amount);
+
+        liquidate(addr);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun liquidation_coin_unchanged_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 100;
+        let coin_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        set_coin_amount(addr, coin_amount);
+
+        let coin_before = coin_of(addr);
+        liquidate(addr);
+
+        assert!(deposit_of(addr) == 0);
+        assert!(coin_of(addr) == coin_before);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    #[expected_failure(arithmetic_error, location = Self)]
+    fun withdraw_after_liquidation_fail(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 100;
+        let coin_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        set_coin_amount(addr, coin_amount);
+
+        liquidate(addr);
+
+        withdraw(account, 1);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun burn_after_liquidation_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 100;
+        let coin_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        set_coin_amount(addr, coin_amount);
+
+        liquidate(addr);
+
+        assert!(deposit_of(addr) == 0);
+        assert!(coin_of(addr) == coin_amount);
+
+        burn(account, 500);
+
+        assert!(coin_of(addr) == 500);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun deposit_after_liquidation_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Coin, Deposit, SignerCap {
+        let addr = signer::address_of(account);
+        let initial_deposit = 100;
+        let coin_amount = 1000;
+        let redeposit_amount = 500;
+
+        let (burn_cap, mint_cap) =
+            setup_test_coins(account, framework, initial_deposit + redeposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, initial_deposit);
+        set_coin_amount(addr, coin_amount);
+
+        liquidate(addr);
+        assert!(deposit_of(addr) == 0);
+
+        deposit(account, redeposit_amount);
+        assert!(deposit_of(addr) == redeposit_amount);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun multiple_burns_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+        let mint_amount = 500;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        burn(account, 100);
+        assert!(coin_of(addr) == 400);
+
+        burn(account, 150);
+        assert!(coin_of(addr) == 250);
+
+        burn(account, 250);
+        assert!(coin_of(addr) == 0);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun burn_exact_full_amount_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+        let mint_amount = 500;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        burn(account, mint_amount);
+
+        assert!(coin_of(addr) == 0);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun full_lifecycle_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+
+        deposit(account, deposit_amount);
+        assert!(deposit_of(addr) == 1000);
+
+        mint(account, 500);
+        assert!(coin_of(addr) == 500);
+
+        burn(account, 200);
+        assert!(coin_of(addr) == 300);
+
+        withdraw(account, 700);
+        assert!(deposit_of(addr) == 300);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun mint_after_partial_burn_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+
+        mint(account, 1000);
+        assert!(coin_of(addr) == 1000);
+
+        burn(account, 500);
+        assert!(coin_of(addr) == 500);
+
+        mint(account, 300);
+        assert!(coin_of(addr) == 800);
+
+        clean_test_coins(burn_cap, mint_cap);
+    }
+
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
+    fun withdraw_with_active_mint_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires Deposit, Coin, SignerCap {
+        let addr = signer::address_of(account);
+        let deposit_amount = 1000;
+        let mint_amount = 200;
+
+        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        register_account(stabletoken);
+        init_module(stabletoken);
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        withdraw(account, 800);
+
+        assert!(deposit_of(addr) == 200);
+        assert!(coin_of(addr) == 200);
+        assert!(get_health_factor(addr) == 100);
 
         clean_test_coins(burn_cap, mint_cap);
     }
