@@ -8,21 +8,27 @@ In Move, smart contract logic and assets are stored in the modules. By definitio
 
 The general structure while creating a move module is as following:
 
-`module <address>::<identifier> {
-//Module Body
-}`
+```rust
+module <address>::<identifier> {
+    //Module Body
+}
+```
 
 So, in our case, since we added our address litteral to Move.toml:
 
-`module stabletoken::stabletoken_engine {
-//Module Body
-}`
+```move
+module stabletoken::stabletoken_engine {
+    //Module Body
+}
+```
 
 which is equal to:
 
-`module 0x5bd82a7c6a44c5b241b074bac9b277e565fb10b77b32e3599dce8412813836ad::stabletoken_engine {
-//Module Body
-}`
+```move
+module 0x5bd82a7c6a44c5b241b074bac9b277e565fb10b77b32e3599dce8412813836ad::stabletoken_engine {
+    //Module Body
+}
+```
 
 In Movement Move, each account may deploy any amount of module on their account address which is stored in the deployed account, `identifier` let developers to name the module so that its functions can be reached under that specific name. In our case, our `identifier` is `stabletoken_engine`.
 
@@ -34,7 +40,21 @@ The elements within a module block have no required ordering, as long as the log
 
 `use` keyword is used to import libraries or other move modules. For example, if you want to import and use `signer` from the standart library, which is used to call signer parameters like the account address, then in the module we need to declare this as:
 
-`module stabetoken::stabletoken_engine {
-use std::signer;
-// Rest of the module
-}`
+```move
+module stabletoken::stabletoken_engine {
+    use std::signer;
+    // Rest of the module
+}
+```
+
+### Structs and Abilities
+
+Structs are objects that contain key-value pairs inside it which are stored in the global storage. Binding values can be any basic data type or other structs, but not as default. They are defined with `struct` keyword as follows:
+
+```move
+module stabletoken::stabletoken_engine {
+    struct Deposit {
+        amount: u64
+    }
+}
+```
