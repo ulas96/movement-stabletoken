@@ -85,11 +85,9 @@ let liquidated: bool = true;
 let addr: address = 0x3f8a2e1c9b7d6f4a8e2c1d9b7f5a3e8c2d1b9f7e5a3c8e2d1f9b7a5e3c8d2f1a
 ```
 
-### Functions
-
 ## Structs
 
-### Defining a Struct
+### Decleration
 
 Structs are objects that contain key-value pairs inside it which are stored in the global storage. Binding values can be any basic data type or other structs, but not as default. They are defined with `struct` keyword as follows:
 
@@ -216,7 +214,7 @@ module stabletoken::stabletoken_engine {
     }
 
     struct User has key { // key ability indicates each account can own only one User strucct affiliated with the account
-        deposit: Deposit,C
+        deposit: Deposit,
         stabletoken: Stabletoken
     }
 
@@ -256,3 +254,83 @@ module stabletoken::stabletoken_engine {
     // Rest of the module
 }
 ```
+
+## Functions
+
+### Decleration
+
+In order to declare a function in Move, `fun` keyword is used. The general structure to declare a function is as following:
+
+```move
+fun <identifier><[type_parameters: constraint],*>([identifier: type],*): <return_type> <acquires [identifier],*> <function_body>
+```
+
+Simple function to carry out addition:
+
+```move
+module stabletoken::stabletoken_engine {
+    fun add(num1: u64, num2: u64): u64 {
+        num1 + num2
+#    }
+}
+```
+
+This function takes num1 with a type of `u64` and num2 with a type of `u64` as a parameter and returns a value whose type is u64. Normally, as you can see, `;` is appended at the end of each operation (each line except end of any scope decleration - modules, functions and structs). When a value to be returned in a function, it is enough not to append the value with `;` at the end. In this simple example, `add` function returns the value `num1 + num2`.
+
+### Visibilty
+
+Visibility determines who or what can be called the function, meaning whether it is available to call from any module/account or just inside the defined module. By default functions are only to be called in the scope of module that functions are defined, which indicates functions are private when otherwise explicitly stated.
+
+#### Public Visibility
+
+`public` keyword is used to indicate that a function can be called from anywhere. `public` functions are allowed to be called by:
+
+- Functions defined in the same module.
+- Functions defined in the other modules.
+- Any account.
+
+So, in our previous example if we wanted to make `add` function `public`, which was private, we simply add `public` keyword while declaring the function.
+
+```move
+module stabletoken::stabletoken_engine {
+   public fun add(num1: u64, num2: u64): u64 {
+        num1 + num2
+    }
+}
+```
+
+#### Entry Functions
+
+Functions that changes the global storage is called entry functions, which are annoted with `entry` keyword. `entry` functions are strictly void so they shall not return any value.
+
+To example this, we can create a function called `initilize` to create a new user struct that has empty deposit struct and empty stabletoken struct to store in the global storage. As we discussed before, `signer` is the transaction (function) executor. So the `signer` owns the state changes related to that function. In this example, we use it to obtain the account address of the transaction caller and to store the `new_user` struct mapped to the `signer`.
+
+```move
+module stabletoken::stabletoken_engine {
+      use std::signer;
+
+    struct Deposit has store {
+        amount: u64
+    }
+
+    struct Stabletoken has store {
+        amount: u64
+    }
+
+    struct User has key {
+        deposit: Deposit,
+        stabletoken: Stabletoken
+    }
+
+    public entry fun initialize(account: &signer) {
+        let addr = signer::address_of(account); // retrieve the caller address and asigns it to addr variable
+        assert!(!exists<User>(addr), 0); // Checks if the user affiliated with the account already exists
+        let empty_deposit = Deposit { amount: 0 }; // Creates an empty deposit struct
+        let empty_stabletoken = Stabletoken { amount: 0 }; // Creates an empty stabletoken struct
+        let new_user = User { deposit: empty_deposit, stabletoken: empty_stabletoken }; // Creates an empty user struct constructing from empty_deposit and empty_stabletoken
+        move_to(account, new_user); // Records newly created new_user struct to the global storage
+    }
+}
+```
+
+In the above function, you may see some unfamiliar operations like `address_of` method on `signer`, `assert!()` conditional and `exists<<object_name>>`. `signer` has method called `address_of` which returns the account address of the `signer`. `assert!()` conditional takes two parameters, one is `bool` conditional, the second one is the error code. If the indicated conditional returns false, it reverts the state changes occurred in the function. In the function above, `assert!()` is used to ensure there is not already an existing user affiliated with the `signer` account. `exists<<object_name>>(<account_address>)` returns a `bool` indicates wheter given account address owns an instance of the given object, we check if the caller of the function owns an `user` object to ensure the `initilize` function not over-writing on the existent `user` object.
