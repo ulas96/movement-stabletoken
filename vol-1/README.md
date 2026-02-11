@@ -62,9 +62,9 @@ Move has signed integers (annoted with i) and unsigned integers (annoted with u)
 The type declaration of an integer variable may be done explicitly or implicitly.
 
 ```move
-let explicit_integer = 10;
-let implicit_integer: i64 = 10;
-let hex_unsigned: u64 = 0x1;
+let deposit_amount = 10; // Implicitly defined
+let minted_amount: u64 = 10; // Expilictly defined
+let id: u64 = 0x1; // Hexedecimal
 ```
 
 `let` keyword is used to define a variable, similarly `const` keyword is used to define constants.
@@ -74,8 +74,7 @@ let hex_unsigned: u64 = 0x1;
 `bool` is a primitive data type for `true` and `false`.
 
 ```move
-let some_boolean: bool = true;
-let some_other_booolean: bool = false;
+let liquidated: bool = true;
 ```
 
 ### Address
@@ -86,9 +85,11 @@ let some_other_booolean: bool = false;
 let addr: address = 0x3f8a2e1c9b7d6f4a8e2c1d9b7f5a3e8c2d1b9f7e5a3c8e2d1f9b7a5e3c8d2f1a
 ```
 
-### Structs
+### Functions
 
-#### Defining a Struct
+## Structs
+
+### Defining a Struct
 
 Structs are objects that contain key-value pairs inside it which are stored in the global storage. Binding values can be any basic data type or other structs, but not as default. They are defined with `struct` keyword as follows:
 
@@ -102,7 +103,7 @@ module stabletoken::stabletoken_engine {
 }
 ```
 
-Our `Deposit` struct has a key of `amount` whose value type assigned as `u64` which means `amount` may be ranged from `0` to `2^64 - 1`
+Our `Deposit` struct has a key of `amount` whose type assigned as `u64`.
 
 In Move, name of structs should start with a capital letter `A` to `Z`, the rest may contain letters from `a` to `z`, numbers `0` to `9` and underscore `_`
 
@@ -120,7 +121,7 @@ module stabletoken::stabletoken_engine{
 }
 ```
 
-#### Creating a Struct instance
+### Creating a Struct instance
 
 In order to create an instance of a struct, we can simply assign it to a variable. In our case,
 
@@ -158,7 +159,94 @@ module stabletoken::stabletoken_engine{
 }
 ```
 
-### Importing libraries or modules
+## Abilities
+
+Abilities may be concieved as the features of the structs. They indicate operations that are allowed to perform on a specific struct, which means they determine whether a struct is an asset (something considered to hold a value) or just operationally needed.
+
+There are four abilities that a struct may have. These are `store`, `key`, `copy`, and `drop`. In short,
+
+- `store`: Enables values of these types to be placed within structs in global storage.
+
+- `key`: Enables the type to function as an identifier for global storage operations.
+
+- `copy`: Enables duplication of values for types that have this ability.
+
+- `drop`: Enables values of these types to be discarded or removed.
+
+### Store
+
+`store` ability enables values of these types to placed within structs in global storage, meaning the structs that has `store` ability to be stored in other structs. For our stabletoken example, we can declare a `User` struct to keep track of the users deposit and minted stabletoken amount. In order to execute this functionality, we need to set `Deposit` and `Stabletoken` structs with `store` ability to be stored in `User` struct.
+
+```move
+module stabletoken::stabletoken_engine {
+
+    struct Deposit has store {
+        amount: u64
+    }
+
+    struct Stabletoken has store {
+        amount: u64
+    }
+
+    struct User has store { // User struct has store ability since Deposit and Stabletoken structs inside it have alo stroge ability
+        deposit: Deposit, // Deposit struct can be stored inside User struct since it has a store ability
+        stabletoken: Stabletoken // Stabletoken struct can be stored inside User struct since it has a store ability
+    }
+}
+```
+
+When a struct possesses `store` ability, every struct nested within it must also possess `store`.
+
+### Key
+
+`key` ability enables the struct to function as an identifier for global storage operations, meaning the each account can create one instance of the structs that has `key` ability and can be retrieved from the global storage using account address and object name.
+
+`move_to(<address>, <object>)` command is used to store a stuct with `key` ability in the global storage. `borrow_global<<object>(<address>)>` command is used to retrieve a struct with `key` ability from the globaly storage. `borrow_global_mut<<object>(<address>)` is used to create a mutable reference (changable reference) to the called object.
+
+```move
+module stabletoken::stabletoken_engine {
+
+    struct Deposit has store {
+        amount: u64
+    }
+
+    struct Stabletoken has store {
+        amount: u64
+    }
+    }
+
+    struct User has key { // key ability indicates each account can own only one User strucct affiliated with the account
+        deposit: Deposit,C
+        stabletoken: Stabletoken
+    }
+
+    let address = 0x5bd82a7c6a44c5b241b074bac9b277e565fb10b77b32e3599dce8412813836ad;
+
+    let empty_deposit = Deposit{ amount: 0};
+    let empty_stabletoken = Stabletoken{amount: 0};
+    let new_user = User{ deposit: empty_deposit, stabletoken: empty_stabletoken}
+
+    move_to(account, new_user) //  Records the new_user struct to the global storage
+
+    let user_reference = borrow_global<User>(address); // User reference to retrieve User struct affiliated with the account
+    let user_deposit = borrow_global<User>(address).deposit.amount; // Deposit amount of the reference user
+    let user_stabletoken = borrow_global<User>(address).stabletoken.amount; // Stabletoken  amount of the reference user
+
+    let user_reference_mut = &mut borrow_global_mut<User>(address); // Creates a mutable reference to the user struct affiliated with the account
+    *user_reference_mut = new_user; // Re-assigns the user object of the affiliated account to new_user
+
+    let user_deposit_mut = &mut borrow_global_mut<User>(address).deposit.amount; // Creates a mutable reference to the deposit struct inside the user struct affiliated with the account
+    *user_deposit_mut = empty_deposit; // Re-assigns deposit object of the user object of the affiliated account to empty_deposit
+
+    let user_stabletoken_mut = &mut borrow_global_mut<User>(address).stabletoken.amount; // Creates a mutable reference to the stabletoken struct inside the user the struct affiliated wih the account
+    *user_stabletoken_mut = empty_stabletoken; // Re-assigns stabletoken object of the user object of the affiliated account to empty_deposit
+
+}
+```
+
+`account` inside the `move_to()` has the type `&signer` which will be covered in more detail in the following chapters. This command can be only be invoked inside a function.
+
+## Importing libraries or modules
 
 `use` keyword is used to import libraries or other move modules. For example, if you want to import and use `signer` from the standart library, which is used to call signer parameters like the account address, then in the module we need to declare this as:
 
