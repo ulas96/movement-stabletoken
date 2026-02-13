@@ -460,3 +460,41 @@ module stabletoken::stabletoken_engine {
 ```
 
 It is strongly suggested to write the test before defining the tested function. With this way it easier to write the function and test.
+
+## deposit_of Function
+
+In Move, view function do not have a seperate decleration, if a function is not labeled as `entry` then it is a view function.
+
+With this information, it is pretty straight forward to define `deposit_of` function which returns deposit amount of the user.
+
+### Write the test first
+
+Before declaring our `deposit_of` function, let's create a test for it first to see, whether our future function will operates correctly.
+
+It is already tested that new initialized `User` struct has 0 deposit. We can use this to test if our future deposit_of function will operate correctly.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    #[test(account = @stabletoken)]
+    fun deposit_of_check(account: &signer) acquires Deposit {
+        let addr = signer::address_of(account); // Retrieve the caller address and asigns it to addr variable
+        initialize(account); // Initializes acount
+        assert!(deposit_of(addr) == 0) // Checks whether newly created user has a zero deposit balance using `deposit_of` function.
+    }
+}
+```
+
+### Function
+
+Since we know what this function will do, it is easier to create the actual function.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+    public fun deposit_of(addr: address): u64 acquires User {
+    borrow_global<User>(addr).deposit.amount // Returns deposit amount of the user
+}
+```

@@ -22,7 +22,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun initialize(account: &signer) {
-        let addr = signer::address_of(account); // retrieve the caller address and asigns it to addr variable
+        let addr = signer::address_of(account); // Retrieve the caller address and asigns it to addr variable
         assert!(!exists<User>(addr), EACCOUNT_ALREADY_EXISTS); // Checks if the user affiliated with the account already exists
         let empty_deposit = Deposit { amount: 0 }; // Creates an empty deposit struct
         let empty_stabletoken = Stabletoken { amount: 0 }; // Creates an empty stabletoken struct
@@ -44,8 +44,8 @@ module stabletoken::stabletoken_engine {
         initialize(account); // initialize the user struct for the given account
         let addr = signer::address_of(account); // Retrieves the address of the given account
         let user = borrow_global<User>(addr); // Retrieves the user struct associated with the account
-        assert!(user.deposit.amount == 0, 100); // Checks if the user struct has zero deposit
-        assert!(user.stabletoken.amount == 0, 101); // Checks if the user struct has zero stabletoken
+        assert!(user.deposit.amount == 0); // Checks if the user struct has zero deposit
+        assert!(user.stabletoken.amount == 0); // Checks if the user struct has zero stabletoken
     }
 
     // Account refer to the stabletoken account in this test
@@ -64,7 +64,7 @@ module stabletoken::stabletoken_engine {
         deposit(account, 100); // Account Deposited 100 "tokens"
         let addr = signer::address_of(account); // Retrieves the address of the given account
         let user = borrow_global<User>(addr); // Retrieves the user struct associated with the account
-        assert!(user.deposit.amount == 100, 200); // Checks if the user struct has 100 deposit
+        assert!(user.deposit.amount == 100); // Checks if the user struct has 100 deposit
     }
 
     // Account refers to the stabletoken account in this test
