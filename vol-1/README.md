@@ -346,14 +346,50 @@ For our stabletoken, users shall deposit their collateral to be able to mint sta
 ```move
 module stabletoken::stabletoken_engine{
 // Rest of the module
-    public entry fun deposit(account: &signer, amount: u64) acquires User, Deposit {
+    public entry fun deposit(account: &signer, amount: u64) acquires User {
         let addr = signer::address_of(account); // Retrieves the (transaction) caller address
         assert!(exists<User>(addr), 0); // Checks if the user associated with the account already exists
-        let deposit_ref = borrow_global<User>.deposit.amount;
-        let deposit_mut = &mut borrow_global_mut<User>.deposit.amountl;
-        *deposit_mut = deposit_ref + amount;
+        let deposit_ref = borrow_global<User>(addr).deposit.amount; // Creates a reference for user deposit of the associated address
+        let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for user deposit of the associated address
+        *deposit_mut = deposit_ref + amount; // Increase the current deposit by provided amountH
     }
 }
 ```
 
 Since we read from the `User` struct and modify state in the `User` struct in `deposit` function, so it should be annoted that `deposit` function `acquires` `User` struct.
+
+## Error Codes
+
+In the `assert!()` method we used above, make sure the first statement holds true, if not return the second parameter like an error code. You may realize for both usage we return the same error code if the boolean operation falls to false, which is not really desirable since with this structure we are not able to undestand where we get the error from. So, we can customize our error coders to understand where the code fails.
+
+There is no special method to create a custom error but we may define error codes as constants and return those error. Let's refactor our functins to have custom errors.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+// Error Codes
+
+    const EACCOUNT_ALREADY_EXISTS: u64 = 0;
+    const EACCOUNT_NOT_EXISTS; u64 = 1;
+
+    public entry fun initialize(account: &signer) {
+        let addr = signer::address_of(account);
+        assert!(!exists<User>(addr), EACCOUNT_ALREADY_EXISTS); // Returns EACCOUNT_ALREADY_EXISTS if the bool parameter returns false
+        let empty_deposit = Deposit { amount: 0 };
+        let empty_stabletoken = Stabletoken { amount: 0 };
+        let new_user = User { deposit: empty_deposit, stabletoken: empty_stabletoken };
+        move_to(account, new_user);
+    }
+
+    public entry fun deposit(account: &signer, amount: u64) acquires User {
+        let addr = signer::address_of(account);
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Returns EACCOUNT_NOT_EXISTS if the bool parameter returns false
+        let deposit_ref = borrow_global<User>(addr).deposit.amount;
+        let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount;
+        *deposit_mut = deposit_ref + amount;
+    }
+
+}
+
+```
