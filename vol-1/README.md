@@ -335,7 +335,7 @@ module stabletoken::stabletoken_engine {
 
 Here, `initialize` function publish a `User` under the signer address, hence, it changes the global storage, which requires `entry` decleration in the function signature.
 
-In the above function, you may see some unfamiliar operations like `address_of` method on `signer`, `assert!()` conditional and `exists<<object_name>>`. `signer` has method called `address_of` which returns the account address of the `signer`. `assert!()` conditional takes two parameters, one is `bool` conditional, the second one is the error code. If the indicated conditional returns false, it reverts the state changes occurred in the function. In the function above, `assert!()` is used to ensure there is not already an existing user associated with the `signer` account. `exists<<object_name>>(<account_address>)` returns a `bool` indicates wheter given account address owns an instance of the given object, we check if the caller of the function owns an `user` object to ensure the `initilize` function not over-writing on the existent `user` object.
+In the above function, you may see some unfamiliar operations like `address_of` method on `signer`, `assert!()` conditional and `exists<<object_name>>`. `signer` has method called `address_of` which returns the account address of the `signer`. `assert!()` conditional takes two parameters, one is `bool` conditional, the second one is the error code. If the indicated conditional returns false, it reverts the state changes occurred in the function. In the function above, `assert!()` is used to ensure there is not already an existing user associated with the `signer` account. `exists<<object_name>>(<account_address>)` returns a `bool` indicates wheter given account address owns an instance of the given object, we check if the caller of the function owns an `user` object to ensure the `initialize` function not over-writing on the existent `user` object.
 
 #### Acquires
 
@@ -384,7 +384,7 @@ module stabletoken::stabletoken_engine{
 
     public entry fun deposit(account: &signer, amount: u64) acquires User {
         let addr = signer::address_of(account);
-        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Returns EACCOUNT_NOT_EXISTS if the bool parameter returns false
+I        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Returns EACCOUNT_NOT_EXISTS if the bool parameter returns false
         let deposit_ref = borrow_global<User>(addr).deposit.amount;
         let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut = deposit_ref + amount;
@@ -393,3 +393,70 @@ module stabletoken::stabletoken_engine{
 }
 
 ```
+
+## Testing
+
+Testing is a vital process to ensure the smart contracts function as they promise without a bug. Move has a default testing feature that allows developer to benchmark their smart contracts.
+
+`#[test]` or `#[test_only]` refers that the following function is defined to test functions in the module. We can use `#[test(<paramater> = value)]`, when we want to use a specfic value for the associated parameter during the test execution. For example, in our `initialize` function, we need to pass an `account` vairable with a type of `&signer`. In order to imitate an `account` variable in tests, we assign the intended value in the `#[test]` tag. `#[test_only]` may percieved as the helper function for tests.
+
+With above information, we can create a test to see if our `initialize` function works correctly.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    #[test(account = @stabletoken)] // Account refers to the stabletoken account in this test
+    fun initialization_check(account: &signer) acquires User {
+        initialize(account); // initialize the user struct for the given account
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        let user = borrow_global<User>(addr); // Retrieves the user struct associated with the account
+        assert!(user.deposit.amount == 0, 100); // Checks if the user struct has zero deposit
+        assert!(user.stabletoken.amount == 0, 101); // Checks if the user struct has zero stabletoken
+    }
+}
+```
+
+In order to run tests in the module, we may use `move test --skip-fetch-latest-git-deps`
+
+When we want to ensure a function fail with pre-defined error, `#[expected_failure(abort_code = <desired_error>)]`.
+
+`initialize` function ensures that the provided account doesn't have any prior `User` struct record. So an account cannot be initialized twice, it should return the error `EACCOUNT_ALREADY_EXISTS`, which means we `initialize` is called twice, the function should return `EACCOUNT_ALREADY_EXISTS`. Now, we know what we want, it is time to put that into coding.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    #[test(account = @stabletoken)] // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = EACCOUNT_ALREADY_EXISTS)] // Test is expected to fail with `EACCOUNT_ALREADY_EXISTS`
+    fun initialize_check_fails_account_already_exists(account: &signer) {
+        initialize(account); // Account initialized once
+        initialize(account); // Initialized twice - expected error
+    }
+}
+```
+
+We completed tests about `initialize` function, so we can move to test `deposit` function. We may use similar approach and write one test for correct usage and one for expected failure.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    #[test(account = @stabletoken)] // Account refers to the stabletoken account in this test
+    fun deposit_check(account: &signer) acquires User {
+        initialize(account); // Account initialized
+        deposit(account, 100); // Account Deposited 100 "tokens"
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        let user = borrow_global<User>(addr); // Retrieves the user struct associated with the account
+        assert!(user.deposit.amount == 100, 200); // Checks if the user struct has 100 deposit
+    }
+
+    #[test(account = @stabletoken)] // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = EACCOUNT_NOT_EXISTS)] // Test is expected to fail with `EACCOUNT_NOT_EXISTS`
+    fun deposit_check_fails_account_not_exists(account: &signer) acquires user {
+        deposit(account, 100); // Deposited 100 "tokens" without account initialization - expected error
+    }
+}
+```
+
+It is strongly suggested to write the test before defining the tested function. With this way it easier to write the function and test.
