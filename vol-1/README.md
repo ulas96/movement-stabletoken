@@ -213,7 +213,7 @@ module stabletoken::stabletoken_engine {
     }
     }
 
-    struct User has key { // key ability indicates each account can own only one User strucct affiliated with the account
+    struct User has key { // key ability indicates each account can own only one User strucct associated with the account
         deposit: Deposit,
         stabletoken: Stabletoken
     }
@@ -226,18 +226,18 @@ module stabletoken::stabletoken_engine {
 
     move_to(account, new_user) //  Records the new_user struct to the global storage
 
-    let user_reference = borrow_global<User>(address); // User reference to retrieve User struct affiliated with the account
+    let user_reference = borrow_global<User>(address); // User reference to retrieve User struct associated with the account
     let user_deposit = borrow_global<User>(address).deposit.amount; // Deposit amount of the reference user
     let user_stabletoken = borrow_global<User>(address).stabletoken.amount; // Stabletoken  amount of the reference user
 
-    let user_reference_mut = &mut borrow_global_mut<User>(address); // Creates a mutable reference to the user struct affiliated with the account
-    *user_reference_mut = new_user; // Re-assigns the user object of the affiliated account to new_user
+    let user_reference_mut = &mut borrow_global_mut<User>(address); // Creates a mutable reference to the user struct associated with the account
+    *user_reference_mut = new_user; // Re-assigns the user object of the associated account to new_user
 
-    let user_deposit_mut = &mut borrow_global_mut<User>(address).deposit.amount; // Creates a mutable reference to the deposit struct inside the user struct affiliated with the account
-    *user_deposit_mut = empty_deposit; // Re-assigns deposit object of the user object of the affiliated account to empty_deposit
+    let user_deposit_mut = &mut borrow_global_mut<User>(address).deposit.amount; // Creates a mutable reference to the deposit struct inside the user struct associated with the account
+    *user_deposit_mut = empty_deposit; // Re-assigns deposit object of the user object of the associated account to empty_deposit
 
-    let user_stabletoken_mut = &mut borrow_global_mut<User>(address).stabletoken.amount; // Creates a mutable reference to the stabletoken struct inside the user the struct affiliated wih the account
-    *user_stabletoken_mut = empty_stabletoken; // Re-assigns stabletoken object of the user object of the affiliated account to empty_deposit
+    let user_stabletoken_mut = &mut borrow_global_mut<User>(address).stabletoken.amount; // Creates a mutable reference to the stabletoken struct inside the user the struct associated wih the account
+    *user_stabletoken_mut = empty_stabletoken; // Re-assigns stabletoken object of the user object of the associated account to empty_deposit
 
 }
 ```
@@ -271,7 +271,7 @@ Simple function to carry out addition:
 module stabletoken::stabletoken_engine {
     fun add(num1: u64, num2: u64): u64 {
         num1 + num2
-#    }
+    }
 }
 ```
 
@@ -289,7 +289,7 @@ Visibility determines who or what can be called the function, meaning whether it
 - Functions defined in the other modules.
 - Any account.
 
-So, in our previous example if we wanted to make `add` function `public`, which was private, we simply add `public` keyword while declaring the function.
+So, in our previous example if we wanted to make `add` function `public`, which was private, we simply add `public` keyword function signature.
 
 ```move
 module stabletoken::stabletoken_engine {
@@ -303,7 +303,7 @@ module stabletoken::stabletoken_engine {
 
 Functions that changes the global storage is called entry functions, which are annoted with `entry` keyword. `entry` functions are strictly void so they shall not return any value.
 
-To example this, we can create a function called `initilize` to create a new user struct that has empty deposit struct and empty stabletoken struct to store in the global storage. As we discussed before, `signer` is the transaction (function) executor. So the `signer` owns the state changes related to that function. In this example, we use it to obtain the account address of the transaction caller and to store the `new_user` struct mapped to the `signer`.
+To example this, we can create a function called `initialize` to create a new user struct that has empty deposit struct and empty stabletoken struct to store in the global storage. As we discussed before, `signer` is the transaction (function) executor. So the `signer` owns the state changes related to that function. In this example, we use it to obtain the account address of the transaction caller and to store the `new_user` struct under to the `signer` address.
 
 ```move
 module stabletoken::stabletoken_engine {
@@ -314,7 +314,7 @@ module stabletoken::stabletoken_engine {
     }
 
     struct Stabletoken has store {
-        amount: u64
+        amount: u6
     }
 
     struct User has key {
@@ -323,14 +323,37 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun initialize(account: &signer) {
-        let addr = signer::address_of(account); // retrieve the caller address and asigns it to addr variable
-        assert!(!exists<User>(addr), 0); // Checks if the user affiliated with the account already exists
+        let addr = signer::address_of(account); // Retrieves the (transaction) caller address
+        assert!(!exists<User>(addr), 0); // Checks if the user associated with the account already exists
         let empty_deposit = Deposit { amount: 0 }; // Creates an empty deposit struct
         let empty_stabletoken = Stabletoken { amount: 0 }; // Creates an empty stabletoken struct
         let new_user = User { deposit: empty_deposit, stabletoken: empty_stabletoken }; // Creates an empty user struct constructing from empty_deposit and empty_stabletoken
-        move_to(account, new_user); // Records newly created new_user struct to the global storage
+        move_to(account, new_user); // Publish  new_user struct to the global storage
     }
 }
 ```
 
-In the above function, you may see some unfamiliar operations like `address_of` method on `signer`, `assert!()` conditional and `exists<<object_name>>`. `signer` has method called `address_of` which returns the account address of the `signer`. `assert!()` conditional takes two parameters, one is `bool` conditional, the second one is the error code. If the indicated conditional returns false, it reverts the state changes occurred in the function. In the function above, `assert!()` is used to ensure there is not already an existing user affiliated with the `signer` account. `exists<<object_name>>(<account_address>)` returns a `bool` indicates wheter given account address owns an instance of the given object, we check if the caller of the function owns an `user` object to ensure the `initilize` function not over-writing on the existent `user` object.
+Here, `initialize` function publish a `User` under the signer address, hence, it changes the global storage, which requires `entry` decleration in the function signature.
+
+In the above function, you may see some unfamiliar operations like `address_of` method on `signer`, `assert!()` conditional and `exists<<object_name>>`. `signer` has method called `address_of` which returns the account address of the `signer`. `assert!()` conditional takes two parameters, one is `bool` conditional, the second one is the error code. If the indicated conditional returns false, it reverts the state changes occurred in the function. In the function above, `assert!()` is used to ensure there is not already an existing user associated with the `signer` account. `exists<<object_name>>(<account_address>)` returns a `bool` indicates wheter given account address owns an instance of the given object, we check if the caller of the function owns an `user` object to ensure the `initilize` function not over-writing on the existent `user` object.
+
+#### Acquires
+
+If a function reads or changes value related to a specific struct, that struct should be included as `acquires` in function's signature.
+
+For our stabletoken, users shall deposit their collateral to be able to mint stabletoken. So lets create a `deposit` function for this operation. At this level, lets assume a perfect world and everyone has infinite amount of balance and they instantly pay the provided amount.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+    public entry fun deposit(account: &signer, amount: u64) acquires User, Deposit {
+        let addr = signer::address_of(account); // Retrieves the (transaction) caller address
+        assert!(exists<User>(addr), 0); // Checks if the user associated with the account already exists
+        let deposit_ref = borrow_global<User>.deposit.amount;
+        let deposit_mut = &mut borrow_global_mut<User>.deposit.amountl;
+        *deposit_mut = deposit_ref + amount;
+    }
+}
+```
+
+Since we read from the `User` struct and modify state in the `User` struct in `deposit` function, so it should be annoted that `deposit` function `acquires` `User` struct.
