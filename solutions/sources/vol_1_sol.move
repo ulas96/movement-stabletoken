@@ -7,6 +7,10 @@ module stabletoken::stabletoken_engine_sol {
     const EACCOUNT_NOT_EXISTS: u64 = 1;
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
+    const EZERO_AMOUNT: u64 = 4;
+
+    // Constants
+    const PRICE: u64 = 1;
 
     struct Deposit has store {
         amount: u64
@@ -36,6 +40,21 @@ module stabletoken::stabletoken_engine_sol {
         let deposit_ref = deposit_of(addr);
         let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut = deposit_ref + amount;
+    }
+
+    public entry fun mint(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT);
+        let addr = signer::address_of(account);
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
+
+        let deposit_balance = deposit_of(addr);
+        let stabletoken_balance = stabletoken_of(addr);
+        let mint_avl = deposit_balance * PRICE - stabletoken_balance;
+
+        assert!(mint_avl >= amount, ENOT_ENOUGH_DEPOSIT);
+
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_mut_ref = stabletoken_balance + amount;
     }
 
     public fun deposit_of(addr: address): u64 acquires User {
@@ -89,5 +108,40 @@ module stabletoken::stabletoken_engine_sol {
         let addr = signer::address_of(account);
         initialize(account);
         assert!(stabletoken_of(addr) == 0)
+    }
+
+    #[test(account = @stabletoken)]
+    fun mint_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        let mint_amount: u64 = 10;
+        let deposit_amount: u64 = 100;
+
+        initialize(account);
+        deposit(account, deposit_amount);
+        mint(account, mint_amount);
+
+        assert!(stabletoken_of(addr) == mint_amount);
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    fun mint_check_fails_not_enough_deposit(account: &signer) acquires User {
+        initialize(account);
+        deposit(account, 10);
+        mint(account, 20);
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = EACCOUNT_NOT_EXISTS)]
+    fun mint_check_fails_account_not_exists(account: &signer) acquires User {
+        mint(account, 10);
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    fun mint_check_fails_zero_amount(account: &signer) acquires User {
+        initialize(account);
+        deposit(account, 100);
+        mint(account, 0);
     }
 }

@@ -461,7 +461,7 @@ module stabletoken::stabletoken_engine {
 
 It is strongly suggested to write the test before defining the tested function. With this way it easier to write the function and test.
 
-## deposit_of Function
+## `deposit_of` Function
 
 In Move, view function do not have a seperate decleration, if a function is not labeled as `entry` then it is a view function.
 
@@ -503,7 +503,7 @@ The relevant test is already provided, your task to make it pass with the correc
 
 Optional TODO: Refactor `deposit` function so that it uses `deposit_of` function in its operation in its operations.
 
-## stabletoken_of Function
+## `stabletoken_of` Function
 
 To keep track of the stabletoken balance of the user, our stabletoken module needs a function to return the stabletoken balance of the users.
 
@@ -532,6 +532,95 @@ The body of the `stabletoken_of` function, is incomplete and expected to be comp
 
 ```
 
-- Defi presentation
-- Category of the stabletokens
-- interactive codes
+## `mint` Function
+
+`mint` function shall mint stabletokens to the user if the user deposited enough collateral.
+
+### Write the test first
+
+For the correct usage of the `mint` function, the following test is suitable.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+#[test(account = @stabletoken)]
+    fun mint_check(
+        account: &signer
+    ) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        let mint_amount: u64 = 10;
+        let deposit_amount: u64 = 100;
+
+        initialize(account); // Initializes the user for the  account
+        deposit(account, deposit_amount); // Deposits
+        mint(account, mint_amount); // Mints stabletoken
+
+        assert!(coin_of(addr) == mint_amount);
+    }
+}
+```
+
+Also, there are some boundaries of the function where `mint` function shall revert. For these cases, we can create these test that we expect them to fail.
+
+```move
+module stabletoken::stabletoken_engine {
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = enot_enough_deposit)]
+    fun mint_check_fails_Rnot_enough_deposit(account: &signer) acquires user {
+        initialize(account); // initializes the the user for the account
+        deposit(account, 10); // deposits 100 "tokens"
+   Re     mint(account, 20); // mints 20 "tokens" - expected failure since deposit is 10 "tokens" and mint is 20 "tokens"
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = eaccount_not_exists)]
+    fun mint_check_fails_account_not_exists(account: &signer) acquires user {
+        mint(account, 10); // mints 10 "tokens" - expected failure since account not initialized
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ezero_amount)]
+    fun mint_check_fails_zero_amount(account: &signer) acquires user {
+        initialize(account); // initializes the user for the account
+        deposit(account, 100); // deposits 100 tokens
+        mint(account, 0); // mints zero amount - expected failure since minting amount can not be zero
+    }
+}
+```
+
+### Function
+
+Normally, stabletokens shall use oracle price avoiding from price manipulation occurs in the liquidity pools. We will also integrate an oracle our stabletoken eventually. However, for now, we keep things simple and have a hard coded price until we integrate oracle to our stabletoken.
+
+Hence, we declare a constant to use it as the price.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+    const PRICE: u64 = 1; // Represents the price for now
+}
+```
+
+Since, we obtained our price temprorarly, our function is more straight forward.
+
+In `mint` function below, there are some missing part that is expexted to be completed. For this time, you are expexted to write three operations so that the function operates in logic. For the first part, you should check whether the `mint_avl` is bigger than `amount`, if not return `ENOT_ENOUGH_DEPOSIT`. For the second part, you should create a mutable reference for the stabletoken balance of the user. Finally, the newly created mutable reference should be increased by `amount`.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    public entry fun mint(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT); // Checks if the amount bigger than zero
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Checks if the user associated with the account already exists
+
+        let deposit_balance = deposit_of(addr); // Retrieves deposit balance
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance
+        let mint_avl = deposit_balance * PRICE - stabletoken_balance; // Calculates maximum mint available
+
+        // TODO: Check if mint_avl is bigger than amount, if not return ENOT_ENOUGH_DEPOSIT
+        // TODO: Create a mutable refernce for stabletoken balance of the user
+        // TODO: Increase the stabletoken balance of the user by the amount
+    }
+}
+```
