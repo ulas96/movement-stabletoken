@@ -371,7 +371,7 @@ module stabletoken::stabletoken_engine{
 // Error Codes
 
     const EACCOUNT_ALREADY_EXISTS: u64 = 0;
-    const EACCOUNT_NOT_EXISTS; u64 = 1;
+    const EACCOUNT_NOT_EXISTS: u64 = 1;
 
     public entry fun initialize(account: &signer) {
         let addr = signer::address_of(account);
@@ -473,7 +473,7 @@ Before declaring our `deposit_of` function, let's create a test for it first to 
 
 It is already tested that new initialized `User` struct has 0 deposit. We can use this to test if our future deposit_of function will operate correctly.
 
-```move
+````move
 module stabletoken::stabletoken_engine {
 // Rest of the module
 
@@ -488,13 +488,50 @@ module stabletoken::stabletoken_engine {
 
 ### Function
 
-Since we know what this function will do, it is easier to create the actual function.
+Since we know what this function will do, it is easier to create the actual function. This function is left uncomplete for new learners to test themselves. So, you are expected to complete the body of the `deposit_of` function.
 
 ```move
 module stabletoken::stabletoken_engine{
 // Rest of the module
 
     public fun deposit_of(addr: address): u64 acquires User {
-    borrow_global<User>(addr).deposit.amount // Returns deposit amount of the user
+    // TODO: Return deposit amount of the user
 }
+````
+
+The relevant test is already provided, your task to make it pass with the correct implementation of `deposit_of` function.
+
+Optional TODO: Refactor `deposit` function so that it uses `deposit_of` function in its operation in its operations.
+
+## stabletoken_of Function
+
+To keep track of the stabletoken balance of the user, our stabletoken module needs a function to return the stabletoken balance of the users.
+
+### Write the test first
+
+Similar to `balance_of_check` test, `stabletoken_of_check` checks whether a new user has zero stabletoken balance.
+
+```move
+  #[test(account = @stabletoken)]
+    fun stabletoken_of_check(account: &signer) acquires Deposit {
+        let addr = signer::address_of(account); // Retrieve the caller address and asigns it to addr variable
+        initialize(account); // Initializes acount
+        assert!(stabletoken_of(addr) == 0) // Checks whether newly created user has a zero stabletoken balance using `deposit_of` function.
+    }
+
 ```
+
+### Function
+
+The body of the `stabletoken_of` function, is incomplete and expected to be completed correctly.
+
+```move
+  public fun stabletoken_of(addr: address): u64 acquires User {
+        // TODO: Return stabletoken amount of the user
+    }
+
+```
+
+- Defi presentation
+- Category of the stabletokens
+- interactive codes

@@ -5,7 +5,7 @@ module stabletoken::stabletoken_engine {
 
     const EACCOUNT_ALREADY_EXISTS: u64 = 0;
     const EACCOUNT_NOT_EXISTS: u64 = 1;
-    const ENOT_ENOUGH_DEPOSITl: u64 = 2;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
 
     struct Deposit has store {
@@ -36,6 +36,14 @@ module stabletoken::stabletoken_engine {
         let deposit_ref = borrow_global<User>(addr).deposit.amount; // Creates a reference for user deposit of the associated address
         let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for user deposit of the associated address
         *deposit_mut = deposit_ref + amount; // Increase the current deposit by provided amount
+    }
+
+    public fun deposit_of(addr: address): u64 acquires User {
+        // TODO: Return deposit amount of the user
+    }
+
+    public fun stabletoken_of(addr: address): u64 acquires User {
+        // TODO: Return stabletoken amount of the user
     }
 
     // Account refer to the stabletoken account in this test
@@ -71,7 +79,21 @@ module stabletoken::stabletoken_engine {
     #[test(account = @stabletoken)]
     // Test is expected to fail with `EACCOUNT_NOT_EXISTS`
     #[expected_failure(abort_code = EACCOUNT_NOT_EXISTS)]
-    fun deposit_check_fails_account_not_exists(account: &signer) acquires user {
+    fun deposit_check_fails_account_not_exists(account: &signer) acquires User {
         deposit(account, 100); // Deposited 100 "tokens" without account initialization - expected error
+    }
+
+    #[test(account = @stabletoken)]
+    fun deposit_of_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        initialize(account);
+        assert!(deposit_of(addr) == 0)
+    }
+
+    #[test(account = @stabletoken)]
+    fun stabletoken_of_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        initialize(account);
+        assert!(stabletoken_of(addr) == 0)
     }
 }
