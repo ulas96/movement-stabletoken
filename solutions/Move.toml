@@ -1,0 +1,15 @@
+[package]
+name = "solutions"
+version = "1.0.0"
+authors = []
+
+[addresses]
+stabletoken = "0xb64bfe1a5edd48d8ff892bf0f9ca555bd42dfb50ad9e52ba860b5adeaa023783"
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/movementlabsxyz/aptos-core.git"
+rev = "movement"
+subdir = "aptos-move/framework/aptos-framework"
+
+[dev-dependencies]
