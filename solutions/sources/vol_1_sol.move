@@ -9,6 +9,7 @@ module stabletoken::stabletoken_engine_sol {
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
     const EZERO_AMOUNT: u64 = 4;
     const ENOT_LIQUIDATABLE: u64 = 5;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 6;
 
     // Constants
     const PRICE: u64 = 1;
@@ -66,6 +67,18 @@ module stabletoken::stabletoken_engine_sol {
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *deposit_mut_ref = 0;
+    }
+
+    public entry fun withdraw(account: &signer, amount: u64) acquires User {
+        let addr = signer::address_of(account);
+        let deposit_balance = deposit_of(addr);
+        let stabletoken_balance = stabletoken_of(addr);
+        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE;
+        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT);
+        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT);
+
+        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+        *deposit_mut_ref = deposit_balance - amount;
     }
 
     public fun deposit_of(addr: address): u64 acquires User {
@@ -180,5 +193,27 @@ module stabletoken::stabletoken_engine_sol {
         deposit(account, 100);
         mint(account, 10);
         liquidate(account);
+    }
+
+    #[test(account = @stabletoken)]
+    fun withdrawal_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        initialize(account);
+        deposit(account, 1000);
+
+        withdraw(account, 100);
+
+        let deposit_balance = deposit_of(addr);
+
+        assert!(deposit_balance == 900);
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
+    fun withdrawal_fail_exceeds_deposit_amount(account: &signer) acquires User {
+        initialize(account);
+        deposit(account, 1000);
+        mint(account, 500);
+        withdraw(account, 600);
     }
 }

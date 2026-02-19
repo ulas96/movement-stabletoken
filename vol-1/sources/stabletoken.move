@@ -70,6 +70,18 @@ module stabletoken::stabletoken_engine {
         *deposit_mut_ref = 0; // Equates the deposit balance of the user to zero
     }
 
+    public entry fun withdraw(account: &signer, amount: u64) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        let deposit_balance = deposit_of(addr); // Retrieves deposit balance of the user
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance of the user
+        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE; // Calculates maximum allowable withdraw due to minting
+        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT); // Checks if `amount` is less then or equal to `max_allow_withdraw`, if not return `EEXCEEDS_DEPOSIT_AMOUNT`
+        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT); // Checks if the `deposit_balance` is less then or equal to `amount`, if not return `ENOT_ENOUGH_DEPOSIT`
+
+        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
+        *deposit_mut_ref = deposit_balance - amount; // Equates the deposit balance of the user to subtraction of `amount` from `deposit_balance`
+    }
+
     // Public View Functions
 
     public fun deposit_of(addr: address): u64 acquires User {
@@ -132,6 +144,7 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
     fun stabletoken_of_check(account: &signer) acquires User {
         let addr = signer::address_of(account); // Retrieves the address of the given account
         initialize(account); // Initializes the the user for the account
@@ -139,7 +152,9 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @stabletoken)]
-    #[expected_failure(abort_code = enot_enough_deposit)]
+    // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    // Test is expected to fail with `ENOT_ENOUGH_DEPOSIT`
     fun mint_check_fails_not_enough_deposit(account: &signer) acquires user {
         initialize(account); // initializes the the user for the account
         deposit(account, 10); // deposits 100 "tokens"
@@ -147,13 +162,16 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @stabletoken)]
-    #[expected_failure(abort_code = eaccount_not_exists)]
+    #[expected_failure(abort_code = EACCOUNT_NOT_EXISTS)]
+    // Test is expected to fail with `EACCOUNT_NOT_EXISTS`
     fun mint_check_fails_account_not_exists(account: &signer) acquires user {
         mint(account, 10); // mints 10 "tokens" - expected failure since account not initialized
     }
 
     #[test(account = @stabletoken)]
-    #[expected_failure(abort_code = ezero_amount)]
+    // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = EZERO_AMOUNT)]
+    // Test is expected to fail with `EZERO_AMOUNT`
     fun mint_check_fails_zero_amount(account: &signer) acquires user {
         initialize(account); // initializes the user for the account
         deposit(account, 100); // deposits 100 tokens
@@ -161,6 +179,7 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
     fun liquidation_check(account: &signer) acquires User {
         let addr = signer::address_of(account); // Retrieves the address of the given account
         initiliaze(account); // Initializes the account
@@ -172,11 +191,38 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
     #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    // Test is expected to fail with `ENOT_LIQUIDATABLE`
     fun liquidate_check_fails_not_liquidatable(account: &signer) acquires User {
         initialize(account); // Initiliazes the account
         deposit(account, 100); // Deposits 100 "tokens"
         mint(account, 10); // Mints 10 "stabletokens"
         liquidate(account); // Liquidates the user's stabletoken position - expected failure since the health factor is not below the precision
+    }
+
+    #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
+    fun withdrawal_check(account: &signer) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        initialize(account); // Intializes the account
+        deposit(account, 1000); // Deposits 1000 "tokens"
+
+        withdraw(account, 100); // Withdraws 100 "tokens"
+
+        let deposit_balance = deposit_of(addr); // Retrives the deposit balance of the user
+
+        assert!(deposit_balance == 900); // Checks if the current balance is equal to the deposited amount minus withdrown amount
+    }
+
+    #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
+    // Test is expected to fail with `EEXCEEDS_DEPOSIT_AMOUNT`
+    fun withdrawal_fail_exceeds_deposit_amount(account: &signer) acquires User {
+        initialize(account); // Initiliazes the account
+        deposit(account, 1000); // Deposits 1000 "tokens"
+        mint(account, 500); // Mints 500 "tokens"
+        withdraw(account, 600); // Withdraws 600 "tokens" - expected failure since the user already minted 500 "tokens" for his 1000 deposited "tokens"
     }
 }
