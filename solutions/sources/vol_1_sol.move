@@ -8,9 +8,11 @@ module stabletoken::stabletoken_engine_sol {
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
     const EZERO_AMOUNT: u64 = 4;
+    const ENOT_LIQUIDATABLE: u64 = 5;
 
     // Constants
     const PRICE: u64 = 1;
+    const PRECISION: u64 = 100;
 
     struct Deposit has store {
         amount: u64
@@ -57,12 +59,28 @@ module stabletoken::stabletoken_engine_sol {
         *stabletoken_mut_ref = stabletoken_balance + amount;
     }
 
+    public entry fun liquidate(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
+        assert!(stabletoken_of(addr) >= ENOT_ENOUGH_STABLETOKEN);
+        assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
+        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *deposit_mut_ref = 0;
+    }
+
     public fun deposit_of(addr: address): u64 acquires User {
         borrow_global<User>(addr).deposit.amount
     }
 
     public fun stabletoken_of(addr: address): u64 acquires User {
         borrow_global<User>(addr).stabletoken.amount
+    }
+
+    public fun get_health_factor(addr: address): u64 acquires User {
+        assert!(stabletoken_of(addr) > 0);
+        let deposit_balance = deposit_of(addr);
+        let stabletoken_balance = stabletoken_of(addr);
+        deposit_balance * PRICE * PRECISION / stabletoken_balance
     }
 
     #[test(account = @stabletoken)]
@@ -143,5 +161,24 @@ module stabletoken::stabletoken_engine_sol {
         initialize(account);
         deposit(account, 100);
         mint(account, 0);
+    }
+
+    fun liquidation_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        initialize(account);
+        deposit(account, 100);
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_mut_ref = 1000;
+        liquidate(account);
+        assert!(deposit_of(addr) == 0);
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    fun liquidate_check_fails_not_liquidatable(account: &signer) acquires User {
+        initialize(account);
+        deposit(account, 100);
+        mint(account, 10);
+        liquidate(account);
     }
 }

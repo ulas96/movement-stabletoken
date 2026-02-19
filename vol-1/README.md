@@ -624,3 +624,79 @@ module stabletoken::stabletoken_engine {
     }
 }
 ```
+
+## `get_health_factor` function
+
+In stabletokens, users deposits their funds to mint stabletokens. If the value of the deposited tokens decreased to a certain level, the value of the minted stabletokens is more than or equal to the deposited amount, the user becomes liquidated; meaning, the value of the token in the module is less then the borrowed amount.
+
+For this operation, we need to make sure that the module calculates whether the the user's position shall be liquidated or not. `get_health_factor` function helps us to determine the position health. Since for now, it is a simple read function, we skip the tests for this function.
+
+```move
+module stabletoken::stabletoken_engine {C
+// Rest of the module
+    const PRECISION: u64 = 100;
+    public fun get_health_factor(addr: address): u64 acquires User {
+        assert!(stabletoken_of(addr) > 0); // Checks whether the user has valid number of stabletoken
+        let deposit_balance = deposit_of(addr); // Retrieves the user deposit balance
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves the user deposit balance
+        deposit_balance * PRICE * PRECISION / stabletoken_balance; // Returns health factor
+    }
+}
+```
+
+We didn't talk about `PRECISION` yet it appears here. What is that and why we need it? You may notice that there is no decimal point in Move. However, health factor is a ratio and shoould not have to be an integer. Hence, we are multiplying with `PRECISION`, so that we can later compare it with `PRECISION`. If the health factor is less than `PRECISION`, then the user's position should be liquidated.
+
+## `liquidate` function
+
+In stabletokens, generally, if there is an inbalance between the lended (deposit) and borrowed(minted stabletoken), meaning if the deposited value becomes less than minted stabletoken in value, then the user must be liquidated. Liquidated users are no longer is able to withdraw their deposit yet they keep the minted stabletoken.
+
+### Write the test first
+
+Let's create a one for correct usage of the `liquidate` function and one for expected failure.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    #[test(account = @stabletoken)]
+    fun liquidation_check(account: &signer) acquires User{
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        initiliaze(account); // Initializes the account
+        deposit(account, 100); // Deposits 100 "tokens"
+        let stabletoken_mut_ref =  &mut borrow_global_mut<User>(addr).stabletoken.amount; // Creates a mutable reference for stabletoken balance of the user
+        *stabletoken_mut_ref = 1000; //  Equates the stabletoken balance of the user to 1000
+        liquidate(account); // Liquidates the user who has more stabletoken value then deposit value
+        assert!(deposit_of(addr) == 0); // Chekcs if the liquidated user has zero deposit
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    fun liquidate_check_fails_not_liquidatable(account: &signer) acquires User {
+        initialize(account); // Initiliazes the account
+        deposit(account, 100); // Deposits 100 "tokens"
+        mint(account, 10); // Mints 10 "stabletokens"
+        liquidate(account);  // Liquidates the user's stabletoken position - expected failure since the health factor is not below the precision
+    }
+}
+```
+
+### Function
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+
+    const ENOT_LIQUIDATABLE: u64 = 5;
+
+    public entry fun liquidate(account: &signer) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Checks if the user exists
+        assert!(stabletoken_of(addr) >= ENOT_ENOUGH_STABLETOKEN); //  Checks if the user has valid balance of stabletoken
+
+        // TODO: Check if the user's position is less then `PRECISION` using assert and get_health_factor, if not return `ENOT_LIQUIDATABLE`
+
+        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount; // Creates a mutable reference for stabletoken balance of the user
+        *deposit_mut_ref = 0; // Equates the deposit balance of the user to zero
+    }
+}
+```

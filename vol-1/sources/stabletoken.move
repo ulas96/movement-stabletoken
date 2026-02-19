@@ -7,6 +7,13 @@ module stabletoken::stabletoken_engine {
     const EACCOUNT_NOT_EXISTS: u64 = 1;
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
+    const ENOT_ENOUGH_STABLETOKEN: u64 = 4;
+    const ENOT_LIQUIDATABLE: u64 = 5;
+
+    // Constants
+
+    const PRICE: u64 = 1;
+    const PRECISION: u64 = 100;
 
     struct Deposit has store {
         amount: u64
@@ -52,12 +59,32 @@ module stabletoken::stabletoken_engine {
         // TODO: Increase the stabletoken balance of the user by the amount
     }
 
+    public entry fun liquidate(account: &signer) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Checks if the user exists
+        assert!(stabletoken_of(addr) >= ENOT_ENOUGH_STABLETOKEN); //  Checks if the user has valid balance of stabletoken
+
+        // TODO: Check if the user's position is less then `PRECISION` using assert and get_health_factor, if not return `ENOT_LIQUIDATABLE`
+
+        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount; // Creates a mutable reference for stabletoken balance of the user
+        *deposit_mut_ref = 0; // Equates the deposit balance of the user to zero
+    }
+
+    // Public View Functions
+
     public fun deposit_of(addr: address): u64 acquires User {
         // TODO: Return deposit amount of the user
     }
 
     public fun stabletoken_of(addr: address): u64 acquires User {
         // TODO: Return stabletoken amount of the user
+    }
+
+    public fun get_health_factor(addr: address): u64 acquires User {
+        assert!(stabletoken_of(addr) > 0); // Checks whether the user has valid number of stabletoken
+        let deposit_balance = deposit_of(addr); // Retrieves the user deposit balance
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves the user deposit balance
+        deposit_balance * PRICE * PRECISION / stabletoken_balance; // Returns health factor
     }
 
     // Account refer to the stabletoken account in this test
@@ -131,5 +158,25 @@ module stabletoken::stabletoken_engine {
         initialize(account); // initializes the user for the account
         deposit(account, 100); // deposits 100 tokens
         mint(account, 0); // mints zero amount - expected failure since minting amount can not be zero
+    }
+
+    #[test(account = @stabletoken)]
+    fun liquidation_check(account: &signer) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        initiliaze(account); // Initializes the account
+        deposit(account, 100); // Deposits 100 "tokens"
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount; // Creates a mutable reference for stabletoken balance of the user
+        *stabletoken_mut_ref = 1000; //  Equates the stabletoken balance of the user to 1000
+        liquidate(account); // Liquidates the user who has more stabletoken value then deposit value
+        assert!(deposit_of(addr) == 0); // Chekcs if the liquidated user has zero deposit
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ENOT_LIQUIDATABLE)]
+    fun liquidate_check_fails_not_liquidatable(account: &signer) acquires User {
+        initialize(account); // Initiliazes the account
+        deposit(account, 100); // Deposits 100 "tokens"
+        mint(account, 10); // Mints 10 "stabletokens"
+        liquidate(account); // Liquidates the user's stabletoken position - expected failure since the health factor is not below the precision
     }
 }
