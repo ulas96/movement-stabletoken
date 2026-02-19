@@ -81,6 +81,18 @@ module stabletoken::stabletoken_engine_sol {
         *deposit_mut_ref = deposit_balance - amount;
     }
 
+    public entry fun burn(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT);
+        let addr = signer::address_of(account);
+        let stabletoken_balance = stabletoken_of(addr);
+        assert!(stabletoken_balance >= amount, ENOT_ENOUGH_STABLETOKEN);
+
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_mut_ref = stabletoken_balance - amount;
+    }
+
+    // Public View Functions
+
     public fun deposit_of(addr: address): u64 acquires User {
         borrow_global<User>(addr).deposit.amount
     }
@@ -215,5 +227,29 @@ module stabletoken::stabletoken_engine_sol {
         deposit(account, 1000);
         mint(account, 500);
         withdraw(account, 600);
+    }
+
+    #[test(account = @stabletoken)]
+    fun burn_check(account: &signer) acquires User {
+        let addr = signer::address_of(account);
+        initialize(account);
+        deposit(account, 1000);
+        mint(account, 100);
+
+        let stabletoken_balance = stabletoken_of(addr);
+        burn(account, 100);
+
+        assert!(
+            stabletoken_of(addr) == stabletoken_balance - 100
+        );
+    }
+
+    #[test(account = @stabletoken)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_STABLETOKEN)]
+    fun burn_fail_not_enough_stabletoken(account: &signer) acquires User {
+        initialize(account);
+        deposit(account, 1000);
+        mint(account, 100);
+        burn(account, 200);
     }
 }

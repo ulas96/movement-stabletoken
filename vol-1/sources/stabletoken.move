@@ -7,8 +7,9 @@ module stabletoken::stabletoken_engine {
     const EACCOUNT_NOT_EXISTS: u64 = 1;
     const ENOT_ENOUGH_DEPOSIT: u64 = 2;
     const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
-    const ENOT_ENOUGH_STABLETOKEN: u64 = 4;
+    const EZERO_AMOUNT: u64 = 4;
     const ENOT_LIQUIDATABLE: u64 = 5;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 6;
 
     // Constants
 
@@ -80,6 +81,16 @@ module stabletoken::stabletoken_engine {
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
         *deposit_mut_ref = deposit_balance - amount; // Equates the deposit balance of the user to subtraction of `amount` from `deposit_balance`
+    }
+
+    public entry fun burn(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT); // Checks if the burn amount is more than zero
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves the stabletoken balance of the user
+        assert!(stabletoken_balance >= amount, ENOT_ENOUGH_STABLETOKEN); // Checks if the user has more or same stabletoken balance than `amount`
+
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount; // Creates a mutable reference for stabletoken balance of the user
+        *stabletoken_mut_ref = stabletoken_balance - amount; // Subrtracts `amount` from the user's old stabletoken balance and equates it to the current stabletoken balance of the user
     }
 
     // Public View Functions
@@ -224,5 +235,32 @@ module stabletoken::stabletoken_engine {
         deposit(account, 1000); // Deposits 1000 "tokens"
         mint(account, 500); // Mints 500 "tokens"
         withdraw(account, 600); // Withdraws 600 "tokens" - expected failure since the user already minted 500 "tokens" for his 1000 deposited "tokens"
+    }
+
+    #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
+    fun burn_check(account: &signer) acquires User {
+        let addr = signer::address_of(account); // Retrieves the address of the given account
+        initialize(account); // Initializes the account
+        deposit(account, 1000); // Deposits 1000 "tokens"
+        mint(account, 100); // Mints 100 "tokens"
+
+        let stabletoken_balance = stabletoken_of(addr); // Retrieve the stabletoken balance of the user
+        burn(account, 100); // Burns 100 "tokens"
+
+        assert!(
+            stabletoken_of(addr) == stabletoken_balance - 100
+        ); // Checks if the stabltoken balance of the user is the stabletoken balance before minus burn amount
+    }
+
+    #[test(account = @stabletoken)]
+    // Account refers to the stabletoken account in this test
+    #[expected_failure(abort_code = ENOT_ENOUGH_STABLETOKEN)]
+    // Test is expected to fail with `ENOT_ENOUGH_STABLETOKEN`
+    fun burn_fail_not_enough_stabletoken(account: &signer) acquires User {
+        initialize(account); // Initializes the account
+        deposit(account, 1000); // Deposits 1000 "tokens"
+        mint(account, 100); // Mints 100 "tokens"
+        burn(account, 200); // Burns 200"tokens" - expected failure since the burn amount is more than the stabletoken balance of the user
     }
 }
