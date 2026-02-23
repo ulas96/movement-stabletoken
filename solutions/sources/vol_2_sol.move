@@ -4,6 +4,43 @@ module stabletoken::stabletoken_engine {
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::account;
+    use aptos_framework::event;
+
+    // Events
+    #[event]
+    struct InitializeEvent has drop, store {
+        account: address
+    }
+
+    #[event]
+    struct DepositEvent has drop, store {
+        account: address,
+        amount: u64
+    }
+
+    #[event]
+    struct MintEvent has drop, store {
+        account: address,
+        amount: u64
+    }
+
+    #[event]
+    struct BurnEvent has drop, store {
+        account: address,
+        amount: u64
+    }
+
+    #[event]
+    struct WithdrawEvent has drop, store {
+        account: address,
+        amount: u64
+    }
+
+    #[event]
+    struct LiquidateEvent has drop, store {
+        account: address,
+        deposit_seized: u64
+    }
 
     // Structs
     struct Deposit has store {
@@ -47,6 +84,7 @@ module stabletoken::stabletoken_engine {
         let empty_deposit = Deposit { amount: 0 };
         let empty_coin = Stabletoken { amount: 0 };
         move_to(account, User { deposit: empty_deposit, stabletoken: empty_coin });
+        event::emit(InitializeEvent { account: addr });
     }
 
     public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap {
@@ -59,6 +97,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_ref = deposit_amount + amount;
+        event::emit(DepositEvent { account: addr, amount });
     }
 
     public entry fun mint(account: &signer, amount: u64) acquires User {
@@ -73,14 +112,16 @@ module stabletoken::stabletoken_engine {
         assert!(max_mintible_amount >= amount, ENOT_ENOUGH_DEPOSIT);
         let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *coin_ref = coin_balance + amount;
+        event::emit(MintEvent { account: addr, amount });
     }
 
     public entry fun liquidate(addr: address) acquires User {
         assert!(exists<User>(addr), ENOT_ENOUGH_MINT);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
+        let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_ref = 0;
-
+        event::emit(LiquidateEvent { account: addr, deposit_seized: deposit_amount });
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User, SignerCap {
@@ -98,6 +139,7 @@ module stabletoken::stabletoken_engine {
         let signer_cap = borrow_global<SignerCap>(@stabletoken);
         let contract_signer = account::create_signer_with_capability(&signer_cap.cap);
         coin::transfer<AptosCoin>(&contract_signer, addr, amount);
+        event::emit(WithdrawEvent { account: addr, amount });
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {
@@ -108,7 +150,7 @@ module stabletoken::stabletoken_engine {
 
         let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *coin_ref = coin_balance - amount;
-
+        event::emit(BurnEvent { account: addr, amount });
     }
 
     // View Functions
