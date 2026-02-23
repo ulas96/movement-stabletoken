@@ -1,3 +1,4 @@
+
 module stabletoken::stabletoken_engine {
     use std::signer;
     use aptos_framework::coin;
@@ -51,10 +52,7 @@ module stabletoken::stabletoken_engine {
     public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
-        assert!(
-            exists<User>(addr),
-            EACCOUNT_NOT_INITIALIZED
-        );
+        assert!(exists<User>(addr), EACCOUNT_NOT_INITIALIZED);
         assert!(coin::balance<AptosCoin>(addr) >= amount, ENOT_ENOUGH_BALANCE);
         let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr;
         coin::transfer<AptosCoin>(account, resource_addr, amount);
