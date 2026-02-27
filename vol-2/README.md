@@ -18,3 +18,5 @@ However, there are some critical assumptions that we need to handle:
 In this module, we are going to refactor our stabletoken module so that it accepts `MOVE` coin as a collateral and emits related events.
 
 The current version of the stabletoken module should look like this now: https://github.com/ulas96/movement-stabletoken
+
+## Events

@@ -1,10 +1,28 @@
-
 module stabletoken::stabletoken_engine {
     use std::signer;
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::account;
     use aptos_framework::event;
+
+    // Structs
+    struct Deposit has store {
+        amount: u64
+    }
+
+    struct Stabletoken has store {
+        amount: u64
+    }
+
+    struct User has key {
+        deposit: Deposit,
+        stabletoken: Stabletoken
+    }
+
+    struct SignerCap has key {
+        cap: account::SignerCapability,
+        resource_addr: address
+    }
 
     // Events
     #[event]
@@ -40,25 +58,6 @@ module stabletoken::stabletoken_engine {
     struct LiquidateEvent has drop, store {
         account: address,
         deposit_seized: u64
-    }
-
-    // Structs
-    struct Deposit has store {
-        amount: u64
-    }
-
-    struct Stabletoken has store {
-        amount: u64
-    }
-
-    struct User has key {
-        deposit: Deposit,
-        stabletoken: Stabletoken
-    }
-
-    struct SignerCap has key {
-        cap: account::SignerCapability,
-        resource_addr: address
     }
 
     // Constants
