@@ -1,5 +1,6 @@
 module stabletoken::stabletoken_engine_sol {
     use std::signer;
+    use aptos_framework::event;
 
     // Error Codes
 
@@ -15,6 +16,7 @@ module stabletoken::stabletoken_engine_sol {
     const PRICE: u64 = 1;
     const PRECISION: u64 = 100;
 
+    // Structs
     struct Deposit has store {
         amount: u64
     }
@@ -28,6 +30,48 @@ module stabletoken::stabletoken_engine_sol {
         stabletoken: Stabletoken
     }
 
+    // Events
+    #[event]
+    // Indicates following struct is an event
+    struct InitializeEvent has drop, store { // Event struct with drop and store abilities
+        account: address // Account address of the transaction caller that should be emitted
+    }
+
+    #[event]
+    // Indicates that following struct is an event
+    struct DepositEvent has drop, store { // Event struct with drop and store abilities
+        account: address, // Account address of the transaction caller that should be emitted
+        amount: u64 // Deposit amount that should be emitted
+    }
+
+    #[event]
+    // Indicates that following struct is an event
+    struct MintEvent has drop, store { // Event struct with drop and store abilities
+        account: address, // Account address of the transaction caller that should be emitted
+        amount: u64 // Mint amount that should be emitted
+    }
+
+    #[event]
+    // Indicates that following struct is an event
+    struct BurnEvent has drop, store { // Event struct with drop and store abilities
+        account: address, // Account address of the transaction caller that should be emitted
+        amount: u64 // Burn amount that should be emitted
+    }
+
+    #[event]
+    // Indicates that following struct is an event
+    struct WithdrawEvent has drop, store { // Event struct with drop and store abilities
+        account: address, // Account address of the transaction caller that should be emitted
+        amount: u64 // Withdraw amount that should be emitted
+    }
+
+    #[event]
+    // Indicates that following struct is an event
+    struct LiquidateEvent has drop, store { // Event struct with drop and store abilities
+        account: address, // Account address of the liquidated user that should be emitted
+        amount: u64 // Liquidation amount that should be emitted
+    }
+
     public entry fun initialize(account: &signer) {
         let addr = signer::address_of(account);
         assert!(!exists<User>(addr), EACCOUNT_ALREADY_EXISTS);
@@ -35,6 +79,7 @@ module stabletoken::stabletoken_engine_sol {
         let empty_stabletoken = Stabletoken { amount: 0 };
         let new_user = User { deposit: empty_deposit, stabletoken: empty_stabletoken };
         move_to(account, new_user);
+        event::emit(InitializeEvent { account: addr }); // Emits the Initalize event including the account address of the new `User` struct
     }
 
     public entry fun deposit(account: &signer, amount: u64) acquires User {
@@ -43,6 +88,7 @@ module stabletoken::stabletoken_engine_sol {
         let deposit_ref = deposit_of(addr);
         let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut = deposit_ref + amount;
+        event::emit(DepositEvent { account: addr, amount }); // Emits DepositEvent including the account address of the transaction caller and deposit amount
     }
 
     public entry fun mint(account: &signer, amount: u64) acquires User {
@@ -58,15 +104,17 @@ module stabletoken::stabletoken_engine_sol {
 
         let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *stabletoken_mut_ref = stabletoken_balance + amount;
+        event::emit(MintEvent { account: addr, amount }); // Emits the account address of the transaction caller and mint amount
     }
 
     public entry fun liquidate(account: &signer) acquires User {
-        let addr = signer::address_of(account);
-        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
-        assert!(stabletoken_of(addr) >= ENOT_ENOUGH_STABLETOKEN);
+        assert!(exists<User>(addr), ENOT_ENOUGH_MINT);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
-        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
-        *deposit_mut_ref = 0;
+        let deposit_amount = borrow_global<User>(addr).deposit.amount;
+        let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+        *deposit_ref = 0;
+        event::emit(LiquidateEvent { account: addr, deposit_seized: deposit_amount }); // Emits the account addres of the liquidated user and liquidation amount
+
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
@@ -79,16 +127,18 @@ module stabletoken::stabletoken_engine_sol {
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut_ref = deposit_balance - amount;
+        event::emit(WithdrawEvent { account: addr, amount }); // Emits the account address of the transaction caller and withdraw amount
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
-        let stabletoken_balance = stabletoken_of(addr);
-        assert!(stabletoken_balance >= amount, ENOT_ENOUGH_STABLETOKEN);
+        let coin_balance = coin_of(addr);
+        assert!(coin_balance >= amount, ENOT_ENOUGH_MINT);
 
-        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
-        *stabletoken_mut_ref = stabletoken_balance - amount;
+        let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *coin_ref = coin_balance - amount;
+        event::emit(BurnEvent { account: addr, amount }); // Emits the account address of the transaction caller and burn amount
     }
 
     // Public View Functions
