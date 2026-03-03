@@ -82,14 +82,19 @@ module stabletoken::stabletoken_engine_sol {
         event::emit(InitializeEvent { account: addr }); // Emits the Initalize event including the account address of the new `User` struct
     }
 
-    public entry fun deposit(account: &signer, amount: u64) acquires User {
+    public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap { // SignerCap acquired to use reource address
+        assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
-        assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
-        let deposit_ref = deposit_of(addr);
-        let deposit_mut = &mut borrow_global_mut<User>(addr).deposit.amount;
-        *deposit_mut = deposit_ref + amount;
-        event::emit(DepositEvent { account: addr, amount }); // Emits DepositEvent including the account address of the transaction caller and deposit amount
+        assert!(exists<User>(addr), EACCOUNT_NOT_INITIALIZED);
+        //TODO: Check if the user has a MOVE balance greater than or equal to the indicated `amount` using `assert!()`, `coin::balance<AptosCoin>`, if not return `ENOT_ENOUGH_BALANCE`
+        let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr; // Retrieves the resource address associoated with the module
+        coin::transfer<AptosCoin>(account, resource_addr, amount); // Transfer coins from the user account to the module's resource account
+        let deposit_amount = borrow_global<User>(addr).deposit.amount;
+        let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+        *deposit_ref = deposit_amount + amount;
+        event::emit(DepositEvent { account: addr, amount });
     }
+}
 
     public entry fun mint(account: &signer, amount: u64) acquires User {
         assert!(amount > 0, EZERO_AMOUNT);
@@ -174,13 +179,30 @@ module stabletoken::stabletoken_engine_sol {
         initialize(account);
     }
 
-    #[test(account = @stabletoken)]
-    fun deposit_check(account: &signer) acquires User {
-        initialize(account);
-        deposit(account, 100);
-        let addr = signer::address_of(account);
-        let user = borrow_global<User>(addr);
-        assert!(user.deposit.amount == 100);
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)] // Marks as a test; injects signers: `account` at address 0x123 (simulated user), `stabletoken` at the module's named address (module admin), `framework` at @aptos_framework (privileged authority for coin initialization)
+    fun deposit_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires User, SignerCap {
+        let deposit_amount = 10; // Sets the deposit amount to be used in the test
+        let addr = signer::address_of(account); // Retrieves the account address of the transaction caller
+
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount); // Sets up test coins and returns burn and mint capabilities
+
+        register_account(stabletoken); // Registers the stabletoken account
+        init_module(stabletoken); // Initializes the module, creating a resource account for the module
+        initialize(account); // Initializes the user, creating a `User` struct in the global storage
+
+        let before_balance = coin::balance<AptosCoin>(addr); // Retrieves the MOVE balance of the account before the deposit
+
+        deposit(account, deposit_amount); // Deposits the indicated amount to the module
+
+        let after_balance = coin::balance<AptosCoin>(addr); // Retrieves the MOVE balance of the account after the deposit
+
+        assert!(deposit_of(addr) == deposit_amount); // Asserts that the deposit recorded in the module equals the deposited amount
+        assert!(
+            before_balance - after_balance >= deposit_amount // Asserts that the on-chain balance decreased by at least the deposit amount
+        );
+        clean_test_caps(burn_cap, mint_cap); // Cleans up the test capabilities
     }
 
     #[test(account = @stabletoken)]
@@ -301,5 +323,27 @@ module stabletoken::stabletoken_engine_sol {
         deposit(account, 1000);
         mint(account, 100);
         burn(account, 200);
+    }
+
+// Test Helpers
+
+#[test_only] // Indicates that the following only for test
+    fun setup_test_caps(
+        account: &signer, framework: &signer, amount: u64
+    ): (coin::BurnCapability<AptosCoin>, coin::MintCapability<AptosCoin>) {
+        let addr = signer::address_of(account); // Retrieves the account address associoated with the transaction caller
+        let (burn_cap, mint_cap) =
+            aptos_framework::aptos_coin::initialize_for_test(framework); // Initialize burn and mint capabilites using `framework`
+        coin::deposit(addr, coin::mint<AptosCoin>(amount, &mint_cap)); // Deposit indicated amount of test coins to the signer
+        (burn_cap, mint_cap) // Returns burn and mint capabilites
+    }
+
+ #[test_only] // Indicates that the following only for test
+    fun clean_test_caps(
+        burn_cap: coin::BurnCapability<AptosCoin>,
+        mint_cap: coin::MintCapability<AptosCoin>
+ ) {
+        coin::destroy_burn_cap(burn_cap); // Destroys the burn capability
+        coin::destroy_mint_cap(mint_cap); // Destrys the mint capability
     }
 }

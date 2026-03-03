@@ -68,11 +68,11 @@ module stabletoken::stabletoken_engine {
     const EACCOUNT_ALREADY_INITIALIZED: u64 = 0;
     const EZERO_AMOUNT: u64 = 1;
     const EACCOUNT_NOT_INITIALIZED: u64 = 2;
-    const ENOT_ENOUGH_BALANCE: u64 = 3;
-    const ENOT_ENOUGH_DEPOSIT: u64 = 4;
-    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 5;
-    const ENOT_ENOUGH_MINT: u64 = 6;
-    const ENOT_LIQUIDATABLE: u64 = 7;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 3;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 4;
+    const ENOT_ENOUGH_MINT: u64 = 5;
+    const ENOT_LIQUIDATABLE: u64 = 6;
+    const ENOT_ENOUGH_BALANCE: u64 = 7;
 
     // Functions
 

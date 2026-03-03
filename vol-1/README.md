@@ -632,7 +632,7 @@ In stabletokens, users deposits their funds to mint stabletokens. If the value o
 For this operation, we need to make sure that the module calculates whether the the user's position shall be liquidated or not. `get_health_factor` function helps us to determine the position health. Since for now, it is a simple read function, we skip the tests for this function.
 
 ```move
-module stabletoken::stabletoken_engine {C
+module stabletoken::stabletoken_engine {
 // Rest of the module
     const PRECISION: u64 = 100;
     public fun get_health_factor(addr: address): u64 acquires User {

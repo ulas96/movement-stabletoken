@@ -67,7 +67,7 @@ As we defined our event struct, next to integrate to our `initalize` function so
 ```move
 module stabletoken::stabletoken_engine{
 // Rest of the module
-use aptos_framwork::event; // Event lbibray that let events to be emitted
+use aptos_framework::event; // Event lbibray that let events to be emitted
 
 public entry fun initialize(account: &signer){
         let addr = signer::address_of(account);
@@ -265,3 +265,188 @@ public entry fun liquidate(addr: address) acquires User {
     }
 }
 ```
+
+## Collateral Refactoring
+
+For now, our stabletoken accepts an imaginery "coin" as a collateral, not the actual MOVE coin. We have to make sure that our stabletoken accepts MOVE coin as a collateral so that users can deposit their MOVE coin to mint stabletoken.
+
+### `SignerCap`
+
+In Move, in order to send funds to and withdraw from a module, that module needs to have `SignerCapability`. To define a module with a `SignerCapability`, the module should have `SignerCap` struct with `key` ability - since it is stored in the global storage . This allows us to create a resource address associoated with the module. `SignerCap` needs to have `cap` key with a value type of `account::SignerCapability` and `resource_addr` key with a value type `address`.
+`resource_addr` indicates the address the address of the module send and withdraw funds.
+
+`account` library is not included in the standart library, so we need to import it explicitly from `aptos_framework`.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+    use aptos_framework::account;
+
+    struct SignerCap has key {
+        cap: account::SignerCapability, // The capability that allows creating a signer for the account
+        resource_addr: address // Address that signer will correspond to
+    }
+}
+```
+
+### Moving Funds
+
+To move funds to a module, first the resource address of the module should be obtained, then the transfer can be executed to the obtained resource address using `transfer` method exists on `coin` library in `aptos_framework`.
+
+```move
+module stabletoken::stabletoken_engine {
+use aptos_framework::coin;
+
+let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr; // Obtains the resource address associoated with the module
+coin::transfer<AptosCoin>(account, resource_addr, amount); // Transfers the amount to the module
+}
+```
+
+`@` operator returns an address literal that resolves from a named address (e.g., `@stabletoken`) to its concrete on-chain account address as configured in Move.toml (or provided at publish time).
+
+The transfer method takes a generic type argument (e.g., `<AptosCoin>`) that specifies which coin type’s balance is debited from the sender and credited to the recipient. To transfer a different coin/token, you simply change this type argument to that coin’s type.
+
+### `init_module` Function
+
+In order the module own a resource account, the resource account for the module should be initialized. `init_module` function creates a resource account associoated with the module using `account::create_resource_account(<address>, b"seed")` method and capture the generated abilities. Then, it registers Move coins for the resource account.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+fun init_module(admin: &signer) {
+        let (resource_signer, signer_cap) =
+            account::create_resource_account(admin, b"seed"); // Creates a reource signer and signer cap from `admin` and "seed"
+        coin::register<AptosCoin>(&resource_signer); // Register coins for the resource account
+        let resource_addr = signer::address_of(&resource_signer); // Retrieves the account addres for the reource signer
+        move_to(admin, SignerCap { cap: signer_cap, resource_addr }); // Publishes a `SignerCap` resource under the admin's account
+    }
+}
+```
+
+Modules without function like `init_module` or the module that `init_module` like functions not invoked cannot recieve or send funds.
+
+### MOVE Balance
+
+To obtain the MOVE balance of a user, `balance` method on `coin` library can be called.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+let addr = 0x5bd82a7c6a44c5b241b074bac9b277e565fb10b77b32e3599dce8412813836ad // Address literal
+let move_balance = coin::balance<AptosCoin>(addr) // Returns the MOVE balance of the address
+}
+```
+
+Notice that we also used `coin::balance` with generic type argument (`<AptosCoin>`). This means the same `balance` function can be used to query balances for any asset implemented as an Aptos coin type, by changing the type argument
+
+###Re `deposit` Function Refactoring
+
+We have learnt enough to refactor our function so that the module actually accepts MOVE coin as a collateral.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+    const ENOT_ENOUGH_BALANCE: u64 = 7;
+
+    public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap { // SignerCap acquired to use reource address
+        assert!(amount > 0, EZERO_AMOUNT);
+        let addr = signer::address_of(account);
+        assert!(exists<User>(addr), EACCOUNT_NOT_INITIALIZED);
+        //TODO: Check if the user has a MOVE balance greater than or equal to the indicated `amount` using `assert!()`, `coin::balance<AptosCoin>`, if not return `ENOT_ENOUGH_BALANCE`
+        let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr; // Retrieves the resource address associoated with the module
+        coin::transfer<AptosCoin>(account, resource_addr, amount); // Transfer coins from the user account to the module's resource account
+        let deposit_amount = borrow_global<User>(addr).deposit.amount;
+        let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+        *deposit_ref = deposit_amount + amount;
+        event::emit(DepositEvent { account: addr, amount });
+    }
+}
+```
+
+Simple to-do: Check if the user has enough balance to deposit indicated amount.
+
+### Test Refactoring
+
+#### `setup_test_caps` Function
+
+Previously in our stabletoken module, we were accepting an imaginery coin. In tests, we created fake structs to imitate that the user enough deposit and stabletoken to carry out tests. However now, the module accepts MOVE coin as a collateral so we need to imitate that the test account has enough balance to carry out tests.
+
+To execute that, we will define a test helper to create test coins called `setup_test_caps`. `setup_test_caps` creates test coins to imitate a fake MOVE balance in tests. It takes an `framework` argument with a type of `&signer`. `framework` represents the priviliged authority that owns the Move framework coin configuration and is allowed to perform actions that normal account cannot (i.e. initialization and capability creation).
+
+`setup_test_caps` returns tuple of of two capabilities to grant priviliged authority over the AptosCoin coin type. `BurnCapability<AptosCoin>` gives the ability to burn AptosCoin type and `MintCapability<AptosCoin>` gives the ability to mint AptosCoin type.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+#[test_only] // Indicates that the following only for test
+    fun setup_test_caps(
+        account: &signer, framework: &signer, amount: u64
+    ): (coin::BurnCapability<AptosCoin>, coin::MintCapability<AptosCoin>) {
+        let addr = signer::address_of(account); // Retrieves the account address associoated with the transaction caller
+        let (burn_cap, mint_cap) =
+            aptos_framework::aptos_coin::initialize_for_test(framework); // Initialize burn and mint capabilites using `framework`
+        coin::deposit(addr, coin::mint<AptosCoin>(amount, &mint_cap)); // Deposit indicated amount of test coins to the signer
+        (burn_cap, mint_cap) // Returns burn and mint capabilites
+    }
+}
+```
+
+#### `clean_test_caps` Function
+
+`setup_test_caps` only creates test coins for an account. However, we also need to clear the provided test capabilites. Let's create a function to clean up test tokens. This function uses `coin::destroy_burn_cap()` and `coin::destroy_mint_cap()` methods to destroy created test capabilities.
+
+```move
+module stabletoken::stabletoken_engine{
+// Rest of the module
+
+    #[test_only] // Indicates that the following only for test
+    fun clean_test_caps(
+        burn_cap: coin::BurnCapability<AptosCoin>,
+        mint_cap: coin::MintCapability<AptosCoin>
+ ) {
+        coin::destroy_burn_cap(burn_cap); // Destroys the burn capability
+        coin::destroy_mint_cap(mint_cap); // Destrys the mint capability
+    }
+
+}
+```
+
+#### `deposit_check` Test Refactoring
+
+Now, we are ready to refactor `deposit_check` test to integrate MOVE coin as a collateral.
+
+```move
+module stabletoken::stabletoken_engine {
+// Rest of the module
+    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)] // Marks as a test; injects signers: `account` at address 0x123 (simulated user), `stabletoken` at the module's named address (module admin), `framework` at @aptos_framework (privileged authority for coin initialization)
+    fun deposit_check(
+        account: &signer, stabletoken: &signer, framework: &signer
+    ) acquires User, SignerCap {
+        let deposit_amount = 10; // Sets the deposit amount to be used in the test
+        let addr = signer::address_of(account); // Retrieves the account address of the transaction caller
+
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount); // Sets up test coins and returns burn and mint capabilities
+
+        register_account(stabletoken); // Registers the stabletoken account
+        init_module(stabletoken); // Initializes the module, creating a resource account for the module
+        initialize(account); // Initializes the user, creating a `User` struct in the global storage
+
+        let before_balance = coin::balance<AptosCoin>(addr); // Retrieves the MOVE balance of the account before the deposit
+
+        deposit(account, deposit_amount); // Deposits the indicated amount to the module
+
+        let after_balance = coin::balance<AptosCoin>(addr); // Retrieves the MOVE balance of the account after the deposit
+
+        assert!(deposit_of(addr) == deposit_amount); // Asserts that the deposit recorded in the module equals the deposited amount
+        assert!(
+            before_balance - after_balance >= deposit_amount // Asserts that the on-chain balance decreased by at least the deposit amount
+        );
+        clean_test_caps(burn_cap, mint_cap); // Cleans up the test capabilities
+    }
+}
+```
+
+Previously, we were not assigning number used in test to variable. However, it always increases readibility to do so. That's why, from now on, we are going to assign every number used in tests to a variable.
