@@ -92,7 +92,7 @@ module stabletoken::stabletoken_engine_sol {
         let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_ref = deposit_amount + amount;
-        event::emit(DepositEvent { account: addr, amount });
+        event::emit(DepositEvent { account: addr, amount }); // Emits the Deposit event including the account address of the transaction caller and deposit amount
     }
 }
 
@@ -122,17 +122,22 @@ module stabletoken::stabletoken_engine_sol {
 
     }
 
-    public entry fun withdraw(account: &signer, amount: u64) acquires User {
-        let addr = signer::address_of(account);
-        let deposit_balance = deposit_of(addr);
-        let stabletoken_balance = stabletoken_of(addr);
-        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE;
-        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT);
-        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT);
+    public entry fun withdraw(account: &signer, amount: u64) acquires User, SignerCap { // SignerCap acquired to use the contract signer for the transfer
+        assert!(amount > 0, EZERO_AMOUNT); // Asserts that the withdraw amount is greater than zero
+        let addr = signer::address_of(account); // Retrieves the account address of the transaction caller
+        let deposit = deposit_of(addr); // Retrieves the current deposit amount of the user
+        let coin = coin_of(addr); // Retrieves the current stabletoken amount of the user
+        let max_allow_withdraw = deposit - coin / get_price(); // Calculates the maximum withdrawable amount based on the collateral ratio
+        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT); // Asserts that the withdraw amount does not exceed the maximum withdrawable amount
+        assert!(deposit >= amount, ENOT_ENOUGH_DEPOSIT); // Asserts that the user has enough deposit to withdraw
 
-        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
-        *deposit_mut_ref = deposit_balance - amount;
-        event::emit(WithdrawEvent { account: addr, amount }); // Emits the account address of the transaction caller and withdraw amount
+        let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Obtains a mutable reference to the user's deposit amount
+        *deposit_ref = deposit - amount; // Decrements the user's deposit by the withdraw amount
+
+        //TODO: Retrieve the SignerCap resource stored under the module's address and assign to signer_cap
+        let contract_signer = account::create_signer_with_capability(&signer_cap.cap); // Creates a signer for the contract using the signer capability
+        coin::transfer<AptosCoin>(&contract_signer, addr, amount); // Transfers the withdraw amount from the module's resource account to the user
+        event::emit(WithdrawEvent { account: addr, amount }); // Emits the WithdrawEvent including the account address of the transaction caller and withdraw amount
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {
