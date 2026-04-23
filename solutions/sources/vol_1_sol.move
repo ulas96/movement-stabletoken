@@ -5,11 +5,12 @@ module stabletoken::stabletoken_engine_sol {
 
     const EACCOUNT_ALREADY_EXISTS: u64 = 0;
     const EACCOUNT_NOT_EXISTS: u64 = 1;
-    const ENOT_ENOUGH_DEPOSIT: u64 = 2;
-    const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
-    const EZERO_AMOUNT: u64 = 4;
-    const ENOT_LIQUIDATABLE: u64 = 5;
-    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 6;
+    const EUNHEALTHY_USER: u64 = 2;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 3;
+    const ENOT_ENOUGH_STABLETOKEN: u64 = 4;
+    const EZERO_AMOUNT: u64 = 5;
+    const ENOT_LIQUIDATABLE: u64 = 6;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 7;
 
     // Constants
     const PRICE: u64 = 1;
@@ -50,14 +51,12 @@ module stabletoken::stabletoken_engine_sol {
         let addr = signer::address_of(account);
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
 
-        let deposit_balance = deposit_of(addr);
-        let stabletoken_balance = stabletoken_of(addr);
-        let mint_avl = deposit_balance * PRICE - stabletoken_balance;
-
-        assert!(mint_avl >= amount, ENOT_ENOUGH_DEPOSIT);
-
         let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *stabletoken_mut_ref = stabletoken_balance + amount;
+
+        let health_factor = get_health_factor(addr);
+        assert!(health_factor >= PRECISION, EUNHEALTHY_USER);
+
     }
 
     public entry fun liquidate(account: &signer) acquires User {
@@ -71,14 +70,12 @@ module stabletoken::stabletoken_engine_sol {
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
         let addr = signer::address_of(account);
-        let deposit_balance = deposit_of(addr);
-        let stabletoken_balance = stabletoken_of(addr);
-        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE;
-        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT);
-        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT);
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut_ref = deposit_balance - amount;
+
+        let health_factor = get_health_factor(addr);
+        assert!(health_factor >= PRECISION, EUNHEALTHY_USER);
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {

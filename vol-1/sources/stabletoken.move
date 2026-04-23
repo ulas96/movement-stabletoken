@@ -5,11 +5,12 @@ module stabletoken::stabletoken_engine {
 
     const EACCOUNT_ALREADY_EXISTS: u64 = 0;
     const EACCOUNT_NOT_EXISTS: u64 = 1;
-    const ENOT_ENOUGH_DEPOSIT: u64 = 2;
-    const ENOT_ENOUGH_STABLETOKEN: u64 = 3;
-    const EZERO_AMOUNT: u64 = 4;
-    const ENOT_LIQUIDATABLE: u64 = 5;
-    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 6;
+    const EUNHEALTHY_USER: u64 = 2;
+    const ENOT_ENOUGH_DEPOSIT: u64 = 3;
+    const ENOT_ENOUGH_STABLETOKEN: u64 = 4;
+    const EZERO_AMOUNT: u64 = 5;
+    const ENOT_LIQUIDATABLE: u64 = 6;
+    const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 7;
 
     // Constants
 
@@ -51,13 +52,12 @@ module stabletoken::stabletoken_engine {
         let addr = signer::address_of(account); // Retrieves the address of the given account
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Checks if the user associated with the account already exists
 
-        let deposit_balance = deposit_of(addr); // Retrieves deposit balance
-        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance
-        let mint_avl = deposit_balance * PRICE - stabletoken_balance; // Calculates maximum mint available
+        let health_factor = get_health_factor(addr); // Retrieves user's health factor
 
-        // TODO: Check if mint_avl is bigger than amount, if not return ENOT_ENOUGH_DEPOSIT
         // TODO: Create a mutable refernce for stabletoken balance of the user
         // TODO: Increase the stabletoken balance of the user by the amount
+        // TODO: Check if health_factor  is bigger than PRECISION, if not return  EUNHEALTHY_USER
+
     }
 
     public entry fun liquidate(account: &signer) acquires User {
@@ -73,14 +73,12 @@ module stabletoken::stabletoken_engine {
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
         let addr = signer::address_of(account); // Retrieves the address of the given account
-        let deposit_balance = deposit_of(addr); // Retrieves deposit balance of the user
-        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance of the user
-        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE; // Calculates maximum allowable withdraw due to minting
-        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT); // Checks if `amount` is less then or equal to `max_allow_withdraw`, if not return `EEXCEEDS_DEPOSIT_AMOUNT`
-        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT); // Checks if the `deposit_balance` is less then or equal to `amount`, if not return `ENOT_ENOUGH_DEPOSIT`
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
         *deposit_mut_ref = deposit_balance - amount; // Equates the deposit balance of the user to subtraction of `amount` from `deposit_balance`
+
+        let health_factor = get_health_factor(addr); // Retrieves user's health factor
+        assert!(health_factor >= PRECISION, EUNHEALTHY_USER); // Checks if health factor is below PRECISION to make sure the user is healthy
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {
