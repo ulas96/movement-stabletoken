@@ -569,7 +569,7 @@ module stabletoken::stabletoken_engine {
     fun mint_check_fails_Rnot_enough_deposit(account: &signer) acquires user {
         initialize(account); // initializes the the user for the account
         deposit(account, 10); // deposits 100 "tokens"
-   Re     mint(account, 20); // mints 20 "tokens" - expected failure since deposit is 10 "tokens" and mint is 20 "tokens"
+        mint(account, 20); // mints 20 "tokens" - expected failure since deposit is 10 "tokens" and mint is 20 "tokens"
     }
 
     #[test(account = @stabletoken)] // Account refers to the stabletoken account in this test
@@ -745,6 +745,7 @@ module stabletoken::stabletoken_engine {
 // Rest of the module
 
 public entry fun withdraw(account: &signer, amount: u64) acquires User {
+     assert!(amount > 0, EZERO_AMOUNT);
      let addr = signer::address_of(account); // Retrieves the address of the given account
 
      let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user

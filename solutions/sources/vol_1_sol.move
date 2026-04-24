@@ -71,6 +71,8 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT);
+
         let addr = signer::address_of(account);
 
         let deposit_balance = deposit_of(addr);

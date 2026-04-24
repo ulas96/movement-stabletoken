@@ -72,6 +72,7 @@ module stabletoken::stabletoken_engine {
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
+        assert!(amount > 0, EZERO_AMOUNT); // Checks if the burn amount is more than zero
         let addr = signer::address_of(account); // Retrieves the address of the given account
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
