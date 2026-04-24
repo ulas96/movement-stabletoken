@@ -105,10 +105,13 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     public fun get_health_factor(addr: address): u64 acquires User {
-        assert!(stabletoken_of(addr) > 0);
-        let deposit_balance = deposit_of(addr);
         let stabletoken_balance = stabletoken_of(addr);
+        if (stabletoken_balance == 0) {
+            return PRECISION
+        };
+        let deposit_balance = deposit_of(addr);
         deposit_balance * PRICE * PRECISION / stabletoken_balance
+
     }
 
     #[test(account = @stabletoken)]
@@ -170,7 +173,7 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     #[test(account = @stabletoken)]
-    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    #[expected_failure(abort_code = EUNHEALTHY_USER)]
     fun mint_check_fails_not_enough_deposit(account: &signer) acquires User {
         initialize(account);
         deposit(account, 10);
@@ -224,7 +227,7 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     #[test(account = @stabletoken)]
-    #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
+    #[expected_failure(abort_code = EUNHEALTHY_USER)]
     fun withdrawal_fail_exceeds_deposit_amount(account: &signer) acquires User {
         initialize(account);
         deposit(account, 1000);

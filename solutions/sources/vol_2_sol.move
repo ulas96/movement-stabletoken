@@ -72,6 +72,8 @@ module stabletoken::stabletoken_engine {
     const EZERO_AMOUNT: u64 = 4;
     const ENOT_LIQUIDATABLE: u64 = 5;
     const EEXCEEDS_DEPOSIT_AMOUNT: u64 = 6;
+    const EUNHEALTHY_USER: u64 = 7;
+    const ENOT_ENOUGH_BALANCE: u64 = 8;
 
     // Functions
 
@@ -80,20 +82,24 @@ module stabletoken::stabletoken_engine {
         let addr = signer::address_of(account);
         assert!(!exists<User>(addr), EACCOUNT_ALREADY_EXISTS);
         let empty_deposit = Deposit { amount: 0 };
-        let empty_coin = Stabletoken { amount: 0 };
-        move_to(account, User { deposit: empty_deposit, stabletoken: empty_coin });
+        let empty_stabletoken = Stabletoken { amount: 0 };
+        move_to(account, User { deposit: empty_deposit, stabletoken: empty_stabletoken });
         event::emit(InitializeEvent { account: addr });
     }
 
     public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
+
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
         assert!(coin::balance<AptosCoin>(addr) >= amount, ENOT_ENOUGH_BALANCE);
+
         let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr;
         coin::transfer<AptosCoin>(account, resource_addr, amount);
-        let deposit_amount = borrow_global<User>(addr).deposit.amount;
+
+        let deposit_amount = deposit_of(addr);
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+
         *deposit_ref = deposit_amount + amount;
         event::emit(DepositEvent { account: addr, amount });
     }
@@ -102,22 +108,25 @@ module stabletoken::stabletoken_engine {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
-        let deposit_balance = deposit_of(addr);
-        let coin_balance = borrow_global<User>(addr).stabletoken.amount;
-        let max_mintible_amount = get_available_collateral(
-            deposit_balance, coin_balance
-        );
-        assert!(max_mintible_amount >= amount, ENOT_ENOUGH_DEPOSIT);
-        let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
-        *coin_ref = coin_balance + amount;
+
+        let stabletoken_balance = stabletoken_of(addr);
+
+        let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_mut_ref = stabletoken_balance + amount;
+
+        let health_factor = get_health_factor(addr);
+        assert!(health_factor >= PRECISION, EUNHEALTHY_USER);
+
         event::emit(MintEvent { account: addr, amount });
     }
 
     public entry fun liquidate(addr: address) acquires User {
         assert!(exists<User>(addr), ENOT_ENOUGH_STABLETOKEN);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
-        let deposit_amount = borrow_global<User>(addr).deposit.amount;
+
+        let deposit_amount = deposit_of(addr);
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+
         *deposit_ref = 0;
         event::emit(LiquidateEvent { account: addr, deposit_seized: deposit_amount });
     }
@@ -125,34 +134,32 @@ module stabletoken::stabletoken_engine {
     public entry fun withdraw(account: &signer, amount: u64) acquires User, SignerCap {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
-        let deposit = deposit_of(addr);
-        let coin = coin_of(addr);
-        let max_allow_withdraw = deposit - coin / get_price();
-        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT);
-        assert!(deposit >= amount, ENOT_ENOUGH_DEPOSIT);
+
+        let deposit_balance = deposit_of(addr);
 
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
-        *deposit_ref = deposit - amount;
+        *deposit_ref = deposit_balance - amount;
 
         let signer_cap = borrow_global<SignerCap>(@stabletoken);
         let contract_signer = account::create_signer_with_capability(&signer_cap.cap);
         coin::transfer<AptosCoin>(&contract_signer, addr, amount);
+
         event::emit(WithdrawEvent { account: addr, amount });
     }
 
     public entry fun burn(account: &signer, amount: u64) acquires User {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
-        let coin_balance = coin_of(addr);
-        assert!(coin_balance >= amount, ENOT_ENOUGH_STABLETOKEN);
+        let stabletoken_balance = stabletoken_of(addr);
+        assert!(stabletoken_balance >= amount, ENOT_ENOUGH_STABLETOKEN);
 
-        let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
-        *coin_ref = coin_balance - amount;
+        let stabletoken_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_ref = stabletoken_balance - amount;
         event::emit(BurnEvent { account: addr, amount });
     }
 
     // View Functions
-    public fun coin_of(addr: address): u64 acquires User {
+    public fun stabletoken_of(addr: address): u64 acquires User {
         borrow_global<User>(addr).stabletoken.amount
     }
 
@@ -165,11 +172,12 @@ module stabletoken::stabletoken_engine {
     }
 
     public fun get_health_factor(addr: address): u64 acquires User {
-        assert!(coin_of(addr) > 0, ENOT_ENOUGH_STABLETOKEN);
-        let deposit = deposit_of(addr);
-        let mint = coin_of(addr);
-
-        deposit * get_price() * PRECISION / mint
+        let stabletoken_balance = stabletoken_of(addr); // Retrieves the user stabletoken balance
+        if (stabletoken_balance == 0) {
+            return PRECISION // Returns PRECISION if the user have not minted any stabletoken
+        };
+        let deposit_balance = deposit_of(addr); // Retrieves the user deposit balance
+        deposit_balance * PRICE * PRECISION / stabletoken_balance // Returns health factor
     }
 
     // Private Functions
@@ -303,9 +311,9 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
         mint(account, mint_amount);
 
-        assert!(coin_of(addr) == mint_amount);
+        assert!(stabletoken_of(addr) == mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -325,9 +333,9 @@ module stabletoken::stabletoken_engine {
 
         mint(account, mint_amount);
 
-        assert!(coin_of(addr) == mint_amount);
+        assert!(stabletoken_of(addr) == mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -348,9 +356,9 @@ module stabletoken::stabletoken_engine {
         mint(account, mint_amount);
         mint(account, mint_amount);
 
-        assert!(coin_of(addr) == 2 * mint_amount);
+        assert!(stabletoken_of(addr) == 2 * mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -360,13 +368,13 @@ module stabletoken::stabletoken_engine {
     ) acquires User {
         let mint_amount: u64 = 0;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, 100);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, 100);
         register_account(stabletoken);
 
         initialize(account);
         mint(account, mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -376,23 +384,23 @@ module stabletoken::stabletoken_engine {
     ) acquires User {
         let mint_amount: u64 = 10;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, 100);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, 100);
         register_account(stabletoken);
 
         mint(account, mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    #[expected_failure(abort_code = EUNHEALTHY_USER)]
     fun mint_fail_not_enough_deposit(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires User, SignerCap {
         let mint_amount: u64 = 100;
         let deposit_amount: u64 = 10;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -400,18 +408,18 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
         mint(account, mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    #[expected_failure(abort_code = ENOT_ENOUGH_DEPOSIT)]
+    #[expected_failure(abort_code = EUNHEALTHY_USER)]
     fun mint_fail_overcollateralization(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires User, SignerCap {
         let mint_amount: u64 = 100;
         let deposit_amount: u64 = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -420,7 +428,7 @@ module stabletoken::stabletoken_engine {
         mint(account, mint_amount);
         mint(account, mint_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -431,7 +439,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let mint_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -441,7 +449,7 @@ module stabletoken::stabletoken_engine {
 
         assert!(get_health_factor(addr) == 1000);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -450,21 +458,21 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 100;
-        let coin_amount = 1000;
+        let stabletoken_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
         initialize(account);
 
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
         liquidate(addr);
 
         assert!(deposit_of(addr) == 0);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -474,18 +482,18 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 1000;
-        let coin_amount = 100;
+        let stabletoken_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
         liquidate(addr);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -496,7 +504,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let withdrawal_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
@@ -517,7 +525,7 @@ module stabletoken::stabletoken_engine {
             after_balance == before_balance - deposit_amount + withdrawal_amount
         );
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -529,7 +537,7 @@ module stabletoken::stabletoken_engine {
         let mint_amount = 100;
         let withdrawal_amount = get_available_collateral(deposit_amount, mint_amount);
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
@@ -542,7 +550,7 @@ module stabletoken::stabletoken_engine {
             deposit_of(addr) == deposit_amount - withdrawal_amount
         );
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -553,7 +561,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let withdrawal_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
@@ -567,7 +575,7 @@ module stabletoken::stabletoken_engine {
             deposit_of(addr) == deposit_amount - 2 * withdrawal_amount
         );
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -577,7 +585,7 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let deposit_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
@@ -586,7 +594,7 @@ module stabletoken::stabletoken_engine {
 
         withdraw(account, 0);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -597,7 +605,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let mint_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
 
         init_module(stabletoken);
@@ -607,7 +615,7 @@ module stabletoken::stabletoken_engine {
 
         withdraw(account, deposit_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -619,7 +627,7 @@ module stabletoken::stabletoken_engine {
         let mint_amount = 100;
         let burn_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -627,13 +635,15 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
         mint(account, mint_amount);
 
-        let coin_balance = coin_of(addr);
+        let stabletoken_balance = stabletoken_of(addr);
 
         burn(account, burn_amount);
 
-        assert!(coin_of(addr) == coin_balance - burn_amount);
+        assert!(
+            stabletoken_of(addr) == stabletoken_balance - burn_amount
+        );
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -645,7 +655,7 @@ module stabletoken::stabletoken_engine {
         let mint_amount = 100;
         let burn_amount = 0;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -655,7 +665,7 @@ module stabletoken::stabletoken_engine {
 
         burn(account, burn_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -667,7 +677,7 @@ module stabletoken::stabletoken_engine {
         let mint_amount = 100;
         let burn_amount = 200;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -677,7 +687,7 @@ module stabletoken::stabletoken_engine {
 
         burn(account, burn_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -688,25 +698,25 @@ module stabletoken::stabletoken_engine {
         let aptos_balance = 50;
         let deposit_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, aptos_balance);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, aptos_balance);
         register_account(stabletoken);
         init_module(stabletoken);
         initialize(account);
 
         deposit(account, deposit_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    #[expected_failure(abort_code = ENOT_ENOUGH_MINT)]
+    #[expected_failure(abort_code = ENOT_ENOUGH_STABLETOKEN)]
     fun health_factor_fail_zero_mint(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -715,7 +725,7 @@ module stabletoken::stabletoken_engine {
 
         get_health_factor(addr);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -726,7 +736,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 100;
         let mint_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -736,7 +746,7 @@ module stabletoken::stabletoken_engine {
 
         assert!(get_health_factor(addr) == 100);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -746,19 +756,19 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 100;
-        let coin_amount = 100;
+        let stabletoken_amount = 100;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
 
         liquidate(addr);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -767,23 +777,23 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 100;
-        let coin_amount = 1000;
+        let stabletoken_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
 
-        let coin_before = coin_of(addr);
+        let coin_before = stabletoken_of(addr);
         liquidate(addr);
 
         assert!(deposit_of(addr) == 0);
-        assert!(coin_of(addr) == coin_before);
+        assert!(stabletoken_of(addr) == coin_before);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -793,21 +803,21 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 100;
-        let coin_amount = 1000;
+        let stabletoken_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
 
         liquidate(addr);
 
         withdraw(account, 1);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -816,26 +826,26 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let deposit_amount = 100;
-        let coin_amount = 1000;
+        let stabletoken_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, deposit_amount);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
 
         liquidate(addr);
 
         assert!(deposit_of(addr) == 0);
-        assert!(coin_of(addr) == coin_amount);
+        assert!(stabletoken_of(addr) == stabletoken_amount);
 
         burn(account, 500);
 
-        assert!(coin_of(addr) == 500);
+        assert!(stabletoken_of(addr) == 500);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -844,17 +854,17 @@ module stabletoken::stabletoken_engine {
     ) acquires User, SignerCap {
         let addr = signer::address_of(account);
         let initial_deposit = 100;
-        let coin_amount = 1000;
+        let stabletoken_amount = 1000;
         let redeposit_amount = 500;
 
         let (burn_cap, mint_cap) =
-            setup_test_coins(account, framework, initial_deposit + redeposit_amount);
+            setup_test_caps(account, framework, initial_deposit + redeposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
         initialize(account);
         deposit(account, initial_deposit);
-        set_coin_amount(addr, coin_amount);
+        set_coin_amount(addr, stabletoken_amount);
 
         liquidate(addr);
         assert!(deposit_of(addr) == 0);
@@ -862,7 +872,7 @@ module stabletoken::stabletoken_engine {
         deposit(account, redeposit_amount);
         assert!(deposit_of(addr) == redeposit_amount);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -873,7 +883,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let mint_amount = 500;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -882,15 +892,15 @@ module stabletoken::stabletoken_engine {
         mint(account, mint_amount);
 
         burn(account, 100);
-        assert!(coin_of(addr) == 400);
+        assert!(stabletoken_of(addr) == 400);
 
         burn(account, 150);
-        assert!(coin_of(addr) == 250);
+        assert!(stabletoken_of(addr) == 250);
 
         burn(account, 250);
-        assert!(coin_of(addr) == 0);
+        assert!(stabletoken_of(addr) == 0);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -901,7 +911,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let mint_amount = 500;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -911,9 +921,9 @@ module stabletoken::stabletoken_engine {
 
         burn(account, mint_amount);
 
-        assert!(coin_of(addr) == 0);
+        assert!(stabletoken_of(addr) == 0);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -923,7 +933,7 @@ module stabletoken::stabletoken_engine {
         let addr = signer::address_of(account);
         let deposit_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -933,15 +943,15 @@ module stabletoken::stabletoken_engine {
         assert!(deposit_of(addr) == 1000);
 
         mint(account, 500);
-        assert!(coin_of(addr) == 500);
+        assert!(stabletoken_of(addr) == 500);
 
         burn(account, 200);
-        assert!(coin_of(addr) == 300);
+        assert!(stabletoken_of(addr) == 300);
 
         withdraw(account, 700);
         assert!(deposit_of(addr) == 300);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -951,7 +961,7 @@ module stabletoken::stabletoken_engine {
         let addr = signer::address_of(account);
         let deposit_amount = 1000;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -959,15 +969,15 @@ module stabletoken::stabletoken_engine {
         deposit(account, deposit_amount);
 
         mint(account, 1000);
-        assert!(coin_of(addr) == 1000);
+        assert!(stabletoken_of(addr) == 1000);
 
         burn(account, 500);
-        assert!(coin_of(addr) == 500);
+        assert!(stabletoken_of(addr) == 500);
 
         mint(account, 300);
-        assert!(coin_of(addr) == 800);
+        assert!(stabletoken_of(addr) == 800);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
@@ -978,7 +988,7 @@ module stabletoken::stabletoken_engine {
         let deposit_amount = 1000;
         let mint_amount = 200;
 
-        let (burn_cap, mint_cap) = setup_test_coins(account, framework, deposit_amount);
+        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
         register_account(stabletoken);
         init_module(stabletoken);
 
@@ -989,10 +999,10 @@ module stabletoken::stabletoken_engine {
         withdraw(account, 800);
 
         assert!(deposit_of(addr) == 200);
-        assert!(coin_of(addr) == 200);
+        assert!(stabletoken_of(addr) == 200);
         assert!(get_health_factor(addr) == 100);
 
-        clean_test_coins(burn_cap, mint_cap);
+        clean_test_caps(burn_cap, mint_cap);
     }
 
     // Test Helpers
@@ -1027,7 +1037,7 @@ module stabletoken::stabletoken_engine {
 
     #[test_only]
     fun set_coin_amount(addr: address, amount: u64) acquires User {
-        let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
-        *coin_ref = amount;
+        let stabletoken_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
+        *stabletoken_ref = amount;
     }
 }

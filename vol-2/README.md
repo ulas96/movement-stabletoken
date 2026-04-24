@@ -256,7 +256,7 @@ module stabletoken::stabletoken_engine {
 // Rest of the module
 
 public entry fun liquidate(addr: address) acquires User {
-        assert!(exists<User>(addr), ENOT_ENOUGH_MINT);
+        assert!(exists<User>(addr), ENOT_ENOUGH_STABLETOKEN);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
         let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;

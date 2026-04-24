@@ -630,15 +630,20 @@ In stabletokens, users deposits their funds to mint stabletokens. If the value o
 
 For this operation, we need to make sure that the module calculates whether the the user's position shall be liquidated or not. `get_health_factor` function helps us to determine the position health. Since for now, it is a simple read function, we skip the tests for this function.
 
+If the user has not minted any stabletoken, `get_health_factor` returns `PRECISION` to prevent returning undefined for the case.
+
 ```move
 module stabletoken::stabletoken_engine {
 // Rest of the module
     const PRECISION: u64 = 100;
     public fun get_health_factor(addr: address): u64 acquires User {
-        assert!(stabletoken_of(addr) > 0); // Checks whether the user has valid number of stabletoken
+    let stabletoken_balance = stabletoken_of(addr); // Retrieves the user stabletoken balance
+        if (stabletoken_balance == 0) {
+            return PRECISION // Returns PRECISION if the user have not minted any stabletoken
+        };
         let deposit_balance = deposit_of(addr); // Retrieves the user deposit balance
-        let stabletoken_balance = stabletoken_of(addr); // Retrieves the user deposit balance
-        deposit_balance * PRICE * PRECISION / stabletoken_balance; // Returns health factor
+        deposit_balance * PRICE * PRECISION / stabletoken_balance // Returns health factor
+
     }
 }
 ```

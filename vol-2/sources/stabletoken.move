@@ -74,23 +74,33 @@ module stabletoken::stabletoken_engine_sol {
 
     public entry fun initialize(account: &signer) {
         let addr = signer::address_of(account);
+
         assert!(!exists<User>(addr), EACCOUNT_ALREADY_EXISTS);
+
         let empty_deposit = Deposit { amount: 0 };
         let empty_stabletoken = Stabletoken { amount: 0 };
         let new_user = User { deposit: empty_deposit, stabletoken: empty_stabletoken };
+
         move_to(account, new_user);
         event::emit(InitializeEvent { account: addr }); // Emits the Initalize event including the account address of the new `User` struct
     }
 
     public entry fun deposit(account: &signer, amount: u64) acquires User, SignerCap { // SignerCap acquired to use reource address
         assert!(amount > 0, EZERO_AMOUNT);
+
         let addr = signer::address_of(account);
+
         assert!(exists<User>(addr), EACCOUNT_NOT_INITIALIZED);
+
         //TODO: Check if the user has a MOVE balance greater than or equal to the indicated `amount` using `assert!()`, `coin::balance<AptosCoin>`, if not return `ENOT_ENOUGH_BALANCE`
+
         let resource_addr = borrow_global<SignerCap>(@stabletoken).resource_addr; // Retrieves the resource address associoated with the module
+
         coin::transfer<AptosCoin>(account, resource_addr, amount); // Transfer coins from the user account to the module's resource account
+
         let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+
         *deposit_ref = deposit_amount + amount;
         event::emit(DepositEvent { account: addr, amount }); // Emits the Deposit event including the account address of the transaction caller and deposit amount
     }
@@ -113,21 +123,26 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     public entry fun liquidate(account: &signer) acquires User {
-        assert!(exists<User>(addr), ENOT_ENOUGH_MINT);
+        let addr = signer::address_of(account);
+
+        assert!(exists<User>(addr), ENOT_ENOUGH_STABLETOKEN);
         assert!(get_health_factor(addr) < PRECISION, ENOT_LIQUIDATABLE);
+
         let deposit_amount = borrow_global<User>(addr).deposit.amount;
         let deposit_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
+
         *deposit_ref = 0;
         event::emit(LiquidateEvent { account: addr, deposit_seized: deposit_amount }); // Emits the account addres of the liquidated user and liquidation amount
-
     }
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User, SignerCap { // SignerCap acquired to use the contract signer for the transfer
         assert!(amount > 0, EZERO_AMOUNT); // Asserts that the withdraw amount is greater than zero
+
         let addr = signer::address_of(account); // Retrieves the account address of the transaction caller
         let deposit = deposit_of(addr); // Retrieves the current deposit amount of the user
         let coin = coin_of(addr); // Retrieves the current stabletoken amount of the user
         let max_allow_withdraw = deposit - coin / get_price(); // Calculates the maximum withdrawable amount based on the collateral ratio
+
         assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT); // Asserts that the withdraw amount does not exceed the maximum withdrawable amount
         assert!(deposit >= amount, ENOT_ENOUGH_DEPOSIT); // Asserts that the user has enough deposit to withdraw
 
@@ -144,7 +159,7 @@ module stabletoken::stabletoken_engine_sol {
         assert!(amount > 0, EZERO_AMOUNT);
         let addr = signer::address_of(account);
         let coin_balance = coin_of(addr);
-        assert!(coin_balance >= amount, ENOT_ENOUGH_MINT);
+        assert!(coin_balance >= amount, ENOT_ENOUGH_STABLETOKEN);
 
         let coin_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *coin_ref = coin_balance - amount;
@@ -162,9 +177,11 @@ module stabletoken::stabletoken_engine_sol {
     }
 
     public fun get_health_factor(addr: address): u64 acquires User {
-        assert!(stabletoken_of(addr) > 0);
+       let stabletoken_balance = stabletoken_of(addr);
+        if (stabletoken_balance == 0) {
+            return PRECISION
+        };
         let deposit_balance = deposit_of(addr);
-        let stabletoken_balance = stabletoken_of(addr);
         deposit_balance * PRICE * PRECISION / stabletoken_balance
     }
 
