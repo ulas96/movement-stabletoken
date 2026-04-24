@@ -51,6 +51,8 @@ module stabletoken::stabletoken_engine_sol {
         let addr = signer::address_of(account);
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS);
 
+        let stabletoken_balance = stabletoken_of(addr);
+
         let stabletoken_mut_ref = &mut borrow_global_mut<User>(addr).stabletoken.amount;
         *stabletoken_mut_ref = stabletoken_balance + amount;
 
@@ -70,6 +72,8 @@ module stabletoken::stabletoken_engine_sol {
 
     public entry fun withdraw(account: &signer, amount: u64) acquires User {
         let addr = signer::address_of(account);
+
+        let deposit_balance = deposit_of(addr);
 
         let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount;
         *deposit_mut_ref = deposit_balance - amount;

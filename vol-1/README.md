@@ -603,7 +603,7 @@ module stabletoken::stabletoken_engine {
 
 Since, we obtained our price temprorarly, our function is more straight forward.
 
-In `mint` function below, there are some missing part that is expexted to be completed. For this time, you are expexted to write three operations so that the function operates in logic. For the first part, you should check whether the `mint_avl` is bigger than `amount`, if not return `ENOT_ENOUGH_DEPOSIT`. For the second part, you should create a mutable reference for the stabletoken balance of the user. Finally, the newly created mutable reference should be increased by `amount`.
+In `mint` function below, there are some missing part that is expexted to be completed. For this time, you are expexted to write three operations so that the function operates in logic. For the first part, you should create a mutable reference for the stabletoken balance of the user. For the second part, the newly created mutable reference should be increased by `amount`. Finally, check wheter the user's health factor is below `PRECISION`, meaning it checks wheter the user is liquidatable after minting stabletoken.
 
 ```move
 module stabletoken::stabletoken_engine {
@@ -614,13 +614,12 @@ module stabletoken::stabletoken_engine {
         let addr = signer::address_of(account); // Retrieves the address of the given account
         assert!(exists<User>(addr), EACCOUNT_NOT_EXISTS); // Checks if the user associated with the account already exists
 
-        let deposit_balance = deposit_of(addr); // Retrieves deposit balance
-        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance
-        let mint_avl = deposit_balance * PRICE - stabletoken_balance; // Calculates maximum mint available
+        let health_factor = get_health_factor(addr); // Retrieves user's health factor
 
-        // TODO: Check if mint_avl is bigger than amount, if not return ENOT_ENOUGH_DEPOSIT
         // TODO: Create a mutable refernce for stabletoken balance of the user
         // TODO: Increase the stabletoken balance of the user by the amount
+        // TODO: Check if health_factor  is bigger than PRECISION, if not return  EUNHEALTHY_USER
+
     }
 }
 ```
@@ -705,11 +704,11 @@ module stabletoken::stabletoken_engine {
 
 ## `withdraw` function
 
-In our stabletoken contract, users should be able to withdraw funds to decrease their deposit. That's said, this function should take into account that user who has minted some amount of stabletoken should not withdraw all of his funds since some of his deposit is tied to the minted stabletoken.
+In our stabletoken contract, users should be able to withdraw funds to decrease their deposit. That's said, wihtdrawal amount should not exceed the user balance and withdrawal should not liquidate the user. Both conditions can be fulfilled by checking the health factor of the user after the state requested state change. If the health factor is below the `PRECISION`, meaning the user's position is not healthy, then the withdrawal transaction should be prevented.
 
 ### Write the test first
 
-At this point, we know that withdrawal amount should be deducted from the deposit and users shouldn't able to withdraw more than the available deposit - due to minting stabletoken. If we put this sentence into coding, we may have two test - one for correct usage and one for exptected failure.
+At this point, we know that withdrawal amount should be deducted from the deposit and withdrawal shouldn't make the user's health factor below `PRECISION`.
 
 ```move
 module stabletoken::stabletoken_engine {
@@ -746,15 +745,13 @@ module stabletoken::stabletoken_engine {
 // Rest of the module
 
 public entry fun withdraw(account: &signer, amount: u64) acquires User {
-        let addr = signer::address_of(account); // Retrieves the address of the given account
-        let deposit_balance = deposit_of(addr); // Retrieves deposit balance of the user
-        let stabletoken_balance = stabletoken_of(addr); // Retrieves stabletoken balance of the user
-        let max_allow_withdraw = deposit_balance - stabletoken_balance / PRICE; // Calculates maximum allowable withdraw due to minting
-        assert!(max_allow_withdraw >= amount, EEXCEEDS_DEPOSIT_AMOUNT); // Checks if `amount` is less then or equal to `max_allow_withdraw`, if not return `EEXCEEDS_DEPOSIT_AMOUNT`
-        assert!(deposit_balance >= amount, ENOT_ENOUGH_DEPOSIT); // Checks if the `deposit_balance` is less then or equal to `amount`, if not return `ENOT_ENOUGH_DEPOSIT`
+     let addr = signer::address_of(account); // Retrieves the address of the given account
 
-        let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
-        *deposit_mut_ref = deposit_balance - amount; // Equates the deposit balance of the user to subtraction of `amount` from `deposit_balance`
+     let deposit_mut_ref = &mut borrow_global_mut<User>(addr).deposit.amount; // Creates a mutable reference for deposit balance of the user
+     *deposit_mut_ref = deposit_balance - amount; // Equates the deposit balance of the user to subtraction of `amount` from `deposit_balance`
+
+     let health_factor = get_health_factor(addr); // Retrieves user's health factor
+     assert!(health_factor >= PRECISION, EUNHEALTHY_USER); // Checks if health factor is below PRECISION to make sure the user is healthy
     }
 }
 ```
