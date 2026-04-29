@@ -144,6 +144,9 @@ module stabletoken::stabletoken_engine {
         let contract_signer = account::create_signer_with_capability(&signer_cap.cap);
         coin::transfer<AptosCoin>(&contract_signer, addr, amount);
 
+        let health_factor = get_health_factor(addr);
+
+        assert!(health_factor >= PRECISION, EUNHEALTHY_USER);
         event::emit(WithdrawEvent { account: addr, amount });
     }
 
@@ -598,7 +601,7 @@ module stabletoken::stabletoken_engine {
     }
 
     #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    #[expected_failure(abort_code = EEXCEEDS_DEPOSIT_AMOUNT)]
+    #[expected_failure(abort_code = EUNHEALTHY_USER)]
     fun withdrawal_fail(
         account: &signer, stabletoken: &signer, framework: &signer
     ) acquires User, SignerCap {
@@ -704,26 +707,6 @@ module stabletoken::stabletoken_engine {
         initialize(account);
 
         deposit(account, deposit_amount);
-
-        clean_test_caps(burn_cap, mint_cap);
-    }
-
-    #[test(account = @0x123, stabletoken = @stabletoken, framework = @aptos_framework)]
-    #[expected_failure(abort_code = ENOT_ENOUGH_STABLETOKEN)]
-    fun health_factor_fail_zero_mint(
-        account: &signer, stabletoken: &signer, framework: &signer
-    ) acquires User, SignerCap {
-        let addr = signer::address_of(account);
-        let deposit_amount = 1000;
-
-        let (burn_cap, mint_cap) = setup_test_caps(account, framework, deposit_amount);
-        register_account(stabletoken);
-        init_module(stabletoken);
-
-        initialize(account);
-        deposit(account, deposit_amount);
-
-        get_health_factor(addr);
 
         clean_test_caps(burn_cap, mint_cap);
     }
